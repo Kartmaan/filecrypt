@@ -30,3 +30,6 @@ Used to decrypt a file found in the current folder using a key file also present
 Case examples for psw.txt file decryption :
 
 `python filecrypt.py decrypt psw.txt filekey.key`
+
+## Some technical details
+The Fernet class of the `cryptography` module used in this program is based on the AES (Advanced Encryption Standard) algorithm using a 128bit key. The algorithm is in CBC mode (Cipher Block Chaining) which means that the data is processed in 128-bit blocks each of which is independently encrypted. The data authentication functions are provided by the SHA-265 hashing algorithm.
