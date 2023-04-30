@@ -127,22 +127,25 @@ def decrypt(filename, filekey_name):
     print("Operation completed successfully")
 
 if __name__ == "__main__":
-    # ENCRYPT
-    if sys.argv[1] == 'encrypt':
-        # Overwriting
-        if sys.argv[3] == 'ow':
-            encrypt(sys.argv[2], overwrite=True)
-        # Copy file before overwriting
-        elif sys.argv[3] == 'c' :
-            encrypt(sys.argv[2], overwrite=False)
+    try:
+        # ENCRYPT
+        if sys.argv[1] == 'encrypt':
+            if sys.argv[3] == 'ow': # Overwriting
+                encrypt(sys.argv[2], overwrite=True)
+            elif sys.argv[3] == 'c' : # Copy before overwriting
+                encrypt(sys.argv[2], overwrite=False)
+            else: # ERROR
+                print("Error : last argument of encrypt function must be 'ow' or 'c'")
+
+        # DECRYPT
+        elif sys.argv[1] == 'decrypt':
+            decrypt(sys.argv[2], sys.argv[3])
+
         # ERROR
         else:
-            print("Error : last argument of encrypt function must be 'ow' or 'c'")
-
-    # DECRYPT
-    elif sys.argv[1] == 'decrypt':
-        decrypt(sys.argv[2], sys.argv[3])
-
-    # ERROR
-    else:
-        print(f"Error : The 1st argument must be 'encrypt' or 'decrypt'. Given : '{sys.argv[1]}'")
+            print(f"Error : The 1st argument must be 'encrypt' or 'decrypt'. Given : '{sys.argv[1]}'")
+    
+    except IndexError: # Wrong parameter order
+        print("Error : parameters order must be :")
+        print("- encrypt filename ow/c")
+        print("- decrypt filename keyfile_name")
