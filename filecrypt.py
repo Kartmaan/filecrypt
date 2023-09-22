@@ -1,45 +1,59 @@
 import sys
 from os import remove
 import shutil
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
-def encrypt(filename, overwrite=True):
+def encrypt(filename, overwrite=True, manual=False, filekey=None):
     """ Encrypt a file. 
     'filename' is the name of the file 
     to be encrypted present in the current script folder 
-    (with its extension). For example from Powershell :
+    (with its extension). 
+    
+    'overwrite=True' : when last arg is 'ow' the file will be 
+    completely rewritten in encrypted data and therefore will lose its 
+    integrity. When last arg is 'c' instead of 'ow' it creates a copy 
+    of the file in the current folder before the overwrite operation. 
+    For example from Powershell :
 
     python filecrypt.py encrypt img.jpg ow
-
-    By default (overwrite=True) the file will be completely 
-    rewritten in encrypted data and therefore will lose its 
-    integrity, in the case of an image for example, 
-    it will become corrupted. The command 'c' instead of 'ow' 
-    allows to create a copy of the file in the current folder 
-    before the overwrite operation :
-
     python filecrypt.py encrypt img.jpg c
 
-    The function will first generate a "filekey.key" file in
-    the current script folder in which is a randomly generated 
-    secret key. This file should be kept safe
-    """
+    'manual = False' : When the 1st arg is 'encrypt', by default the function 
+    will automatically generate a "filekey.key" file in the current script 
+    folder in which is a randomly generated secret key. This file should be kept safe.
+    'manual == True' : When 1st arg is 'encryptm' a custom keyfile must be given 
+    to encrypt the file
 
+    'keyfile' : Custom keyfile to encrypt the file if manual is True
+
+    Example : 
+
+    python filecrypt.py encryptm img.jpg filekey.txt ow
+    """
     print(f"---- Encryption of {filename} ----")
 
-    generated_filekey_name = 'filekey.key'
+    generated_filekey_name = 'filekey.txt'
 
     # Filekey generation
-    print("Filekey generation...")
-    key = Fernet.generate_key()
-    with open(generated_filekey_name, 'wb') as filekey:
-        filekey.write(key)
+    if manual == False:
+        print("Filekey generation...")
+        key = Fernet.generate_key()
+        with open(generated_filekey_name, 'wb') as filekey:
+            filekey.write(key)
+
+    # Manual mode = no filekey generation
+    else :    
+        generated_filekey_name = filekey
     
     # Filekey reading and retrieved as bytes
     print("Filekey reading...")
-    with open(generated_filekey_name, 'rb') as filekey:
-        key = filekey.read() # key = bytes
-    
+    try:
+        with open(generated_filekey_name, 'rb') as filekey:
+            key = filekey.read() # key = bytes
+    except FileNotFoundError:
+        print(f"Error : No such keyfile : {filename} in the current folder")
+        return None
+
     # Fernet object creation with key
     f = Fernet(key)
 
@@ -72,12 +86,14 @@ def encrypt(filename, overwrite=True):
     encrypted = f.encrypt(file_bytes)
 
     # Overwriting the file with encrypted bytes data
-    print(f"{filename} encryption...")
+    print(f"Data writing...")
     with open(filename, 'wb') as encrypted_file:
         encrypted_file.write(encrypted)
     
-    print("Operation completed successfully")
-    print("A keyfile.key file has been generated in the current folder, please keep it safe")
+    print("---- Operation completed successfully ----")
+
+    if manual == False: 
+        print("A keyfile.key file has been generated in the current folder, please keep it safe")
 
 def decrypt(filename, filekey_name):
     """ Decrypt a file.
@@ -99,7 +115,7 @@ def decrypt(filename, filekey_name):
         with open(filekey_name, 'rb') as filekey:
             key = filekey.read() # key = bytes
     except FileNotFoundError:
-        print(f"Errpr : No such filekey : '{filekey_name}' in the current folder")
+        print(f"Error : No such filekey : '{filekey_name}' in the current folder")
         return None
     
     # Fernet object creation with key
@@ -116,11 +132,15 @@ def decrypt(filename, filekey_name):
     
     # Bytes data decryption
     print("Decrypting data...")
-    decrypted = f.decrypt(encrypted)
+    try :
+        decrypted = f.decrypt(encrypted)
+    except InvalidToken:
+        print("Error : Invalid keyfile")
+        return None
 
     # Overwriting the file with decrypted bytes data
     # File regains its integrity
-    print(f"{filename} decryption...")
+    print(f"{filename} writing...")
     with open(filename, 'wb') as decrypted_file:
         decrypted_file.write(decrypted)
 
@@ -129,6 +149,9 @@ def decrypt(filename, filekey_name):
 if __name__ == "__main__":
     try:
         # ENCRYPT
+        # 1 - encrypt
+        # 2 - filename
+        # 3 - ow - c
         if sys.argv[1] == 'encrypt':
             if sys.argv[3] == 'ow': # Overwriting
                 encrypt(sys.argv[2], overwrite=True)
@@ -136,16 +159,37 @@ if __name__ == "__main__":
                 encrypt(sys.argv[2], overwrite=False)
             else: # ERROR
                 print("Error : last argument of encrypt function must be 'ow' or 'c'")
+        
+        # ENCRYPT_MANUAL
+        # 1 - encryptm
+        # 2 - filename
+        # 3 - filekey
+        # 4 - ow - c
+        elif sys.argv[1] == 'encryptm':
+            if sys.argv[4] == 'ow': # Overwriting
+                encrypt(sys.argv[2], overwrite=True, 
+                manual=True, filekey=sys.argv[3])
+
+            elif sys.argv[4] == 'c' : # Copy before overwriting
+                encrypt(sys.argv[2], overwrite=False, 
+                manual=True, filekey=sys.argv[3])
+
+            else: # ERROR
+                print("Error : last argument of encrypt function must be 'ow' or 'c'") 
 
         # DECRYPT
+        # 1 - decrypt
+        # 2 - filename
+        # 3 - filekey
         elif sys.argv[1] == 'decrypt':
             decrypt(sys.argv[2], sys.argv[3])
 
         # ERROR
         else:
-            print(f"Error : The 1st argument must be 'encrypt' or 'decrypt'. Given : '{sys.argv[1]}'")
+            print(f"Error : The 1st argument must be 'encrypt', 'decrypt' or 'encryptm'. Given : '{sys.argv[1]}'")
     
     except IndexError: # Wrong parameter order
         print("Error : parameters order must be :")
         print("- encrypt filename ow/c")
+        print("- encryptm filename keyfile_name ow/c")
         print("- decrypt filename keyfile_name")
