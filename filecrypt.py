@@ -156,35 +156,33 @@ def decrypt(filename: str, filekey_name: str):
     print("Operation completed successfully")
 
 if __name__ == "__main__":
-    try:
-        # INSTALL
-        if len(sys.argv) == 2 and sys.argv[1] == 'install':
-            install_from_requirements("requirements.txt")
+    # INSTALL
+    if len(sys.argv) == 2 and sys.argv[1] == 'install':
+        install_from_requirements("requirements.txt")
 
-        # ENCRYPT
-        # 1 - encrypt
-        # 2 - filename
-        # 3 - ow - c
-        elif len(sys.argv) == 4 and sys.argv[1] == 'encrypt':
-            if sys.argv[3] == 'ow': # Overwriting
-                encrypt(sys.argv[2], overwrite=True)
-            elif sys.argv[3] == 'c' : # Copy before overwriting
-                encrypt(sys.argv[2], overwrite=False)
-            else: # ERROR
-                print("Error : last argument of encrypt function must be 'ow' or 'c'")
+    # ENCRYPT
+    # 1 - encrypt
+    # 2 - filename
+    # 3 - ow - c
+    elif len(sys.argv) == 4 and sys.argv[1] == 'encrypt':
+        if sys.argv[3] == 'ow': # Overwriting
+            encrypt(sys.argv[2], overwrite=True)
+        elif sys.argv[3] == 'c' : # Copy before overwriting
+            encrypt(sys.argv[2], overwrite=False)
+        else: # ERROR
+            print("Error : last argument of encrypt function must be 'ow' or 'c'")
 
-        # DECRYPT
-        # 1 - decrypt
-        # 2 - filename
-        # 3 - filekey
-        elif len(sys.argv) == 4 and sys.argv[1] == 'decrypt':
-            decrypt(sys.argv[2], sys.argv[3])
+    # DECRYPT
+    # 1 - decrypt
+    # 2 - filename
+    # 3 - filekey
+    elif len(sys.argv) == 4 and sys.argv[1] == 'decrypt':
+        decrypt(sys.argv[2], sys.argv[3])
 
-        # ERROR
-        else:
-            print(f"Error : The 1st argument must be 'encrypt', 'decrypt' or 'install'. Given : '{sys.argv[1]}'")
-    
-    except IndexError: # Wrong parameter order
-        print("Error : parameters order must be :")
-        print("- encrypt filename ow/c")
-        print("- decrypt filename keyfile_name")
+    # ARGS ERROR
+    else:
+        print("Error : Wrong arguments, parameters order must be :")
+        print("- encrypt <filename> ow/c")
+        print("- decrypt <filename> keyfile_name")
+        print("- install")
+        
