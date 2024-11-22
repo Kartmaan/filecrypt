@@ -165,7 +165,7 @@ if __name__ == "__main__":
         # 1 - encrypt
         # 2 - filename
         # 3 - ow - c
-        elif len(sys.argv) == 3 and sys.argv[1] == 'encrypt':
+        elif len(sys.argv) == 4 and sys.argv[1] == 'encrypt':
             if sys.argv[3] == 'ow': # Overwriting
                 encrypt(sys.argv[2], overwrite=True)
             elif sys.argv[3] == 'c' : # Copy before overwriting
@@ -177,7 +177,7 @@ if __name__ == "__main__":
         # 1 - decrypt
         # 2 - filename
         # 3 - filekey
-        elif len(sys.argv) == 3 and sys.argv[1] == 'decrypt':
+        elif len(sys.argv) == 4 and sys.argv[1] == 'decrypt':
             decrypt(sys.argv[2], sys.argv[3])
 
         # ERROR
