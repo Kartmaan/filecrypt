@@ -1,7 +1,7 @@
 # Filecrypt
 This Python script intended to be executed on the command line, allows to **encrypt and decrypt files present in the current folder of the script**. The program is based on the `cryptography` module and in particular its Fernet class allowing symmetric encryption using the 128-bit AES algorithm.
 
-## `encrypt` funtion
+## `encrypt` method
 Encrypts a file found in the script's **current folder**. Before encrypting the file, the program generates a `filekey.key` file containing the randomly generated secret key from which the file will be encrypted. Since this is a symmetrical cryptographic algorithm **This file is to be kept preciously** in order to be able to decrypt the file later and prevent the file from being read by others.
 
 The function must take two arguments:
@@ -10,6 +10,7 @@ The function must take two arguments:
   - `ow` : the file will be overwritten, in the case of an image file for example, it will therefore become unusable (corrupted) in its encrypted form
   - `c` : the file will be copied to the current folder before being overwritten
 
+### Example
 Case examples for psw.txt file encryption :
 
 **Overwrite mode** :
@@ -22,14 +23,20 @@ Case examples for psw.txt file encryption :
 
 The encryption operation will leave a `filekey.key` file in the current folder which must be kept safe.
 
-## `decrypt` function
+## `decrypt` method
 Used to decrypt a file found in the current folder using a key file also present in the folder and in which the secret key is located. The function must take 2 parameters :
 - The name of the file to decrypt (*with its extension*)
 - The name of the key file present in the current folder (*with its extension*)
 
+### Example
 Case examples for psw.txt file decryption :
 
 `python filecrypt.py decrypt psw.txt filekey.key`
+
+## `install` method
+Installs the `cryptography` module and its dependencies via the pip command
+
+`python filecrypt.py install`
 
 ## Some technical details
 ### What's Fernet ?

@@ -1,7 +1,41 @@
+import subprocess
 import sys
 from os import remove
 import shutil
 from cryptography.fernet import Fernet, InvalidToken
+
+import subprocess
+import sys
+
+def install_from_requirements(requirements_file="requirements.txt"):
+    """
+    Installs modules listed in a txt file.
+
+    Args:
+        requirements_file (str, optionnal): The path to 
+        the file. By default, searches for requirements.txt 
+        in the current folder.
+    """
+
+    try:
+        # Opens the file in read mode
+        with open(requirements_file, 'r') as f:
+            for ligne in f:
+                # Removes spaces and comments
+                package = ligne.strip()
+                if package and not package.startswith('#'):
+                    try:
+                        # Tries to install the package with pip
+                        print(f"Checking and installing the package : {package}")
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+                        print(f"{package} has been successfully installed.")
+                    except subprocess.CalledProcessError:
+                        print(f"Error: Unable to install {package}.")
+
+    except FileNotFoundError:
+        print(f"{requirements_file} not found.")
+    except Exception as e:
+        print(f"An unexpected error has occurred : {e}")
 
 def encrypt(filename: str, overwrite:bool = True):
     """Encrypts a file and generates a secret key
@@ -123,11 +157,15 @@ def decrypt(filename: str, filekey_name: str):
 
 if __name__ == "__main__":
     try:
+        # INSTALL
+        if len(sys.argv) == 2 and sys.argv[1] == 'install':
+            install_from_requirements("requirements.txt")
+
         # ENCRYPT
         # 1 - encrypt
         # 2 - filename
         # 3 - ow - c
-        if sys.argv[1] == 'encrypt':
+        elif len(sys.argv) == 3 and sys.argv[1] == 'encrypt':
             if sys.argv[3] == 'ow': # Overwriting
                 encrypt(sys.argv[2], overwrite=True)
             elif sys.argv[3] == 'c' : # Copy before overwriting
@@ -139,12 +177,12 @@ if __name__ == "__main__":
         # 1 - decrypt
         # 2 - filename
         # 3 - filekey
-        elif sys.argv[1] == 'decrypt':
+        elif len(sys.argv) == 3 and sys.argv[1] == 'decrypt':
             decrypt(sys.argv[2], sys.argv[3])
 
         # ERROR
         else:
-            print(f"Error : The 1st argument must be 'encrypt', 'decrypt' or 'encryptm'. Given : '{sys.argv[1]}'")
+            print(f"Error : The 1st argument must be 'encrypt', 'decrypt' or 'install'. Given : '{sys.argv[1]}'")
     
     except IndexError: # Wrong parameter order
         print("Error : parameters order must be :")
