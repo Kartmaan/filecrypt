@@ -20,9 +20,9 @@ def install_from_requirements(requirements_file="requirements.txt"):
     try:
         # Opens the file in read mode
         with open(requirements_file, 'r') as f:
-            for ligne in f:
+            for line in f:
                 # Removes spaces and comments
-                package = ligne.strip()
+                package = line.strip()
                 if package and not package.startswith('#'):
                     try:
                         # Tries to install the package with pip
