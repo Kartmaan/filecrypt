@@ -1,6 +1,8 @@
 import subprocess
 import sys
 from os import remove
+from os.path import exists
+import string
 import shutil
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -27,7 +29,8 @@ def install_from_requirements(requirements_file="requirements.txt"):
                     try:
                         # Tries to install the package with pip
                         print(f"Checking and installing the package : {package}")
-                        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+                        subprocess.check_call([sys.executable, "-m", 
+                            "pip", "install", package])
                         print(f"{package} has been successfully installed.")
                     except subprocess.CalledProcessError:
                         print(f"Error: Unable to install {package}.")
@@ -36,6 +39,42 @@ def install_from_requirements(requirements_file="requirements.txt"):
         print(f"{requirements_file} not found.")
     except Exception as e:
         print(f"An unexpected error has occurred : {e}")
+
+def file_name_checker(file_name: str) -> bool:
+    """Checks if a file name is valid by checking whether 
+    all its characters are in a whitelist.
+
+    Args:
+        file_name (str): Name of the file to be checked
+
+    Returns:
+        bool: Valid or not
+    """
+
+    # Whitelist composed of letters, numbers and the 
+    # underscore symbol
+    symbols = ['_']
+    letters_digits = list(string.ascii_letters + 
+    string.digits)
+    whitelist = symbols + letters_digits
+
+    # Not a str (unlikely in the context of this script, 
+    # but who knows?)
+    if not isinstance(file_name, str):
+        return False
+
+    # The string is too long
+    if len(file_name) > 255:
+        return False
+    
+    # Iteration to search for a character not in the 
+    # whitelist
+    for char in file_name:
+        if char not in whitelist:
+            return False
+    
+    # Seems ok
+    return True
 
 def encrypt(filename: str, overwrite:bool = True):
     """Encrypts a file and generates a secret key
@@ -51,6 +90,21 @@ def encrypt(filename: str, overwrite:bool = True):
     print(f"---- Encryption of {filename} ----")
 
     generated_filekey_name = 'filekey.key'
+
+    # If a 'filekey.key' file already exists in the 
+    # current folder, the user is prompted to choose 
+    # another name for the key to be generated.
+    while exists(generated_filekey_name):
+        choice = input(f"{generated_filekey_name} already " 
+        "exists in the current folder, choose another name" 
+        " (without extension): ")
+
+        if file_name_checker(choice):
+            generated_filekey_name = choice + '.key'
+        else:
+            print("Invalid name file, please avoid spaces"
+            " and symbols")
+            continue
 
     # Filekey generation
     print("Filekey generation...")
@@ -104,7 +158,8 @@ def encrypt(filename: str, overwrite:bool = True):
         encrypted_file.write(encrypted)
     
     print("---- Operation completed successfully ----")
-    print("A keyfile.key file has been generated in the current folder, please keep it safe")
+    print("A keyfile.key file has been generated in the current folder,"
+    " please keep it safe")
 
 def decrypt(filename: str, filekey_name: str):
     """Decrypts a file using a secret key 
@@ -124,7 +179,8 @@ def decrypt(filename: str, filekey_name: str):
         with open(filekey_name, 'rb') as filekey:
             key = filekey.read() # key = bytes
     except FileNotFoundError:
-        print(f"Error : No such filekey : '{filekey_name}' in the current folder")
+        print(f"Error : No such filekey : '{filekey_name}'"
+        " in the current folder")
         return None
     
     # Fernet object creation with key
@@ -170,7 +226,8 @@ if __name__ == "__main__":
         elif sys.argv[3] == 'c' : # Copy before overwriting
             encrypt(sys.argv[2], overwrite=False)
         else: # ERROR
-            print("Error : last argument of encrypt function must be 'ow' or 'c'")
+            print("Error : last argument of encrypt function must" 
+            " be 'ow' or 'c'")
 
     # DECRYPT
     # 1 - decrypt
