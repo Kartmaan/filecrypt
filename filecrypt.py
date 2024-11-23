@@ -4,10 +4,8 @@ from os import remove
 from os.path import exists
 import string
 import shutil
-from cryptography.fernet import Fernet, InvalidToken
 
-import subprocess
-import sys
+from cryptography.fernet import Fernet, InvalidToken
 
 def install_from_requirements(requirements_file="requirements.txt"):
     """
