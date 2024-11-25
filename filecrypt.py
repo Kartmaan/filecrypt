@@ -1,13 +1,17 @@
+from os import remove
+from os.path import exists
+from typing import Union
 import subprocess
 import argparse
 import sys
-from os import remove
-from os.path import exists
 import string
 import shutil
+import base64
 
 from cryptography.fernet import Fernet, InvalidToken
 
+# For standardization reasons, the filekey generated and 
+# provided must have the same extension.
 FILEKEY_EXT = ".key"
 
 def install_from_requirements(requirements_file="requirements.txt"):
@@ -41,9 +45,27 @@ def install_from_requirements(requirements_file="requirements.txt"):
     except Exception as e:
         print(f"An unexpected error has occurred : {e}")
 
+def valid_b64_urlsafe(b64_code: Union[str, bytes]) -> bool:
+    """Checks if the entry is a valid base64 urlsafe code.
+
+    Fernet manipulates keys in the form of base64 urlsafe 
+    code, so we'll make sure the input respects this format. 
+
+    Args:
+        b64_code (Union[str, bytes]): Entry to check
+
+    Returns:
+        bool: Valid base64 urlsafe or not
+    """    
+    try:
+        base64.urlsafe_b64decode(b64_code)
+        return True
+    except Exception:
+        return False
+
 def valid_filename(file_name: str) -> bool:
-    """Checks if a file name is valid by checking whether 
-    all its characters are in a whitelist.
+    """Checks if a file name is valid including by checking 
+    if all its characters are in a whitelist.
 
     Args:
         file_name (str): Name of the file to be checked
@@ -62,68 +84,144 @@ def valid_filename(file_name: str) -> bool:
     # Not a str (unlikely in the context of this script, 
     # but who knows?)
     if not isinstance(file_name, str):
+        print("File name must be a str")
         return False
 
     # The string is too long
     if len(file_name) > 255:
+        print("File name too long")
         return False
     
     # Iteration to search for a character not in the 
     # whitelist
     for char in file_name:
         if char not in whitelist:
+            print("Invalid char in file name")
             return False
     
     # Seems ok
     return True
 
-def valid_filekey_name(filekey: str) -> bool:
-    """Checks the validity of a filekey. 
+def valid_filekey_name(filekey: str, create: bool = False) -> bool:
+    """Checks the validity of a filekey name.
+
+    The definition of a valid file key name depends on 
+    whether the file key is supposed to be present in the 
+    current folder or created by the user.
 
     Args:
         filekey (str): Filekey path
 
+        create (bool): Is the filekey supposed to be 
+        created or not (i.e. found in the current folder)?
+
     Returns:
-        bool: Valid or not
-    """    
-    if not exists(filekey):
-        print(f"{filekey} not found")
+        bool: Valid filekey name or not
+    """
+    if not isinstance(filekey, str):
+        print(f"Wrong type, must be a str ({type(filekey)}" 
+        " given)")
         return False
-    
-    if not filekey.endswith(FILEKEY_EXT):
-        print(f"Filekey must be {FILEKEY_EXT}")
-        return False
+
+    # - The filekey will be recovered -
+    # We are looking for a filekey that is supposed to be 
+    # already present in the current folder. We make sure 
+    # the file exists and has the right extension 
+    if not create:
+        if not exists(filekey):
+            print(f"{filekey} not found")
+            return False
+        
+        if not filekey.endswith(FILEKEY_EXT):
+            print(f"Filekey must be {FILEKEY_EXT}")
+            return False
+
+    # - The filekey will be created -
+    # We make sure no file with the same name exists 
+    else:
+        if exists(filekey + FILEKEY_EXT):
+            print(f"{filekey} already exists")
+            return False
     
     return True
 
-def read_filekey(filekey: str):
-    """Displays the Base64 code of a filekey
+def valid_filekey_code(filekey: str) -> Union[bool, None]:
+    """Checks whether the key entered by the user is 
+    valid, i.e. whether it's a base64 urlsafe encoding 
+    (used by Fernet for key generation).
 
     Args:
-        filekey (str): Filekey path
+        filekey (str): Given key
+
+    Returns:
+        Union[bool, None]: Returns True/False if 
+        verification was successful. None otherwise.
     """    
     if exists(filekey):
         if filekey.endswith(FILEKEY_EXT):
             with open(filekey, "r") as f:
                 content = f.read()
-                print(content)
         else:
-            print(f"Filekey must be {FILEKEY_EXT}")
+            print(f"Filekey must be a {FILEKEY_EXT}")
+            return None
     else:
         print(f"{filekey} not found")
-
-# <WORK IN PROGRESS>
-def create_filekey(file_name: str, base64_code: str):
-    if not valid_filename(file_name):
-        print("Invalid file name")
         return None
-    if exists(file_name):
-        print(f"{file_name} already exists")
-        return None    
-# </WORK IN PROGRESS>
+    
+    if not valid_b64_urlsafe(content):
+        return False
+    else:
+        return True
+
+def read_filekey(filekey: str, return_value: bool = False) -> Union[bool, None]:
+    """Displays or returns the Base64 code of a filekey
+
+    Args:
+        filekey (str): Filekey with extension
+
+        return_value (bool): If True, the 'content' 
+        variable is returned, otherwise it's simply 
+        displayed.
+    """    
+    
+    if valid_filekey_name(filekey):
+        with open(filekey, "r") as f:
+                content = f.read()
+                if not return_value:
+                    print(content)
+                else:
+                    return content
+    else:
+        return None
+
+def create_filekey(file_name: str, key: str) -> None:
+    """Creates a filekey based on a base64 key
+
+    Args:
+        file_name (str): Desired name for filekey without
+        extension
+
+        key (str): Secret key (base64 urlsafe)
+    """
+
+    if not valid_filename(file_name):
+        return None
+    
+    if not valid_filekey_name(file_name, create = True):
+        return None
+
+    key = key.replace(' ', '')
+    key_bytes = bytes(key, 'ascii')
+
+    if valid_b64_urlsafe(key_bytes):
+        with open(file_name + FILEKEY_EXT, 'wb') as f:
+            f.write(key_bytes)
+    else:
+        print("Invalid key, must be base64 urlsafe")
+        return None
 
 def encrypt(filename: str, overwrite:bool = True, 
-            given_filekey = None):
+            given_filekey = None) -> None:
     """Encrypts a file and generates a secret key
 
     Args:
@@ -223,7 +321,7 @@ def encrypt(filename: str, overwrite:bool = True,
         print("A keyfile.key file has been generated in the current folder,"
         " please keep it safe")
 
-def decrypt(filename: str, filekey_name: str):
+def decrypt(filename: str, filekey_name: str) -> None:
     """Decrypts a file using a secret key 
 
     Args:
@@ -310,6 +408,20 @@ def main():
         help="Path to keyfile"
     )
 
+    # - - - - - - Command : create
+    parser_create = subparsers.add_parser(
+        "create",
+        help="Create a new keyfile with a given key"
+    )
+    parser_create.add_argument(
+        "filename",
+        help="Filekey name"
+    )
+    parser_create.add_argument(
+        "key",
+        help="Key in base64 urlsafe"
+    )
+
     # - - - - - - Command : encrypt
     parser_encrypt = subparsers.add_parser("encrypt",
         help= "Encrypts a file")
@@ -345,6 +457,9 @@ def main():
     
     elif args.command == "read":
         read_filekey(args.filekey)
+    
+    elif args.command == "create":
+        create_filekey(args.filename, args.key)
     
     elif args.command == "encrypt":
         if args.overwrite and not args.copy:
