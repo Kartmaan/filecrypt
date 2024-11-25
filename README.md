@@ -64,7 +64,7 @@ Display example:
 Creates a filekey in the current folder by providing the desired name and the key. In this way, for example, you can copy the key present in a filekey, by displaying it via the `read` command, to store it in the safe place of your choice, and copy it to the `create` command to recreate the filekey when you need to encrypt/decrypt a file.
 
 ### Example
-Création d'un filekey nommé secretkey avec sa clé :
+Create a file named secretkey with its key :
 
 `python filecrypt.py create secretkey ejK4-SDwj4CFuQ28L28KMjaNVgg-BH1l6FIF3dLsgfk=`
 
