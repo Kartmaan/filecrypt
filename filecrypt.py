@@ -1,4 +1,4 @@
-from os import remove
+from os import remove, urandom
 from os.path import exists
 from typing import Union
 import subprocess
@@ -9,9 +9,9 @@ import shutil
 import base64
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-# For standardization reasons, the filekey generated and 
-# provided must have the same extension.
 FILEKEY_EXT = ".key"
 
 def install_from_requirements(requirements_file="requirements.txt"):
@@ -19,11 +19,10 @@ def install_from_requirements(requirements_file="requirements.txt"):
     Installs modules listed in a txt file.
 
     Args:
-        requirements_file (str, optionnal): The path to 
-        the file. By default, searches for requirements.txt 
+        requirements_file (str, optionnal): The path to
+        the file. By default, searches for requirements.txt
         in the current folder.
     """
-
     try:
         # Opens the file in read mode
         with open(requirements_file, 'r') as f:
@@ -34,7 +33,7 @@ def install_from_requirements(requirements_file="requirements.txt"):
                     try:
                         # Tries to install the package with pip
                         print(f"Checking and installing the package : {package}")
-                        subprocess.check_call([sys.executable, "-m", 
+                        subprocess.check_call([sys.executable, "-m",
                             "pip", "install", package])
                         print(f"{package} has been successfully installed.")
                     except subprocess.CalledProcessError:
@@ -48,15 +47,15 @@ def install_from_requirements(requirements_file="requirements.txt"):
 def valid_b64_urlsafe(b64_code: Union[str, bytes]) -> bool:
     """Checks if the entry is a valid base64 urlsafe code.
 
-    Fernet manipulates keys in the form of base64 urlsafe 
-    code, so we'll make sure the input respects this format. 
+    Fernet manipulates keys in the form of base64 urlsafe
+    code, so we'll make sure the input respects this format.
 
     Args:
         b64_code (Union[str, bytes]): Entry to check
 
     Returns:
         bool: Valid base64 urlsafe or not
-    """    
+    """
     try:
         base64.urlsafe_b64decode(b64_code)
         return True
@@ -64,7 +63,7 @@ def valid_b64_urlsafe(b64_code: Union[str, bytes]) -> bool:
         return False
 
 def valid_filename(file_name: str) -> bool:
-    """Checks if a file name is valid including by checking 
+    """Checks if a file name is valid including by checking
     if all its characters are in a whitelist.
 
     Args:
@@ -74,14 +73,14 @@ def valid_filename(file_name: str) -> bool:
         bool: Valid or not
     """
 
-    # Whitelist composed of letters, numbers and the 
+    # Whitelist composed of letters, numbers and the
     # underscore symbol
     symbols = ['_']
-    letters_digits = list(string.ascii_letters + 
+    letters_digits = list(string.ascii_letters +
     string.digits)
     whitelist = symbols + letters_digits
 
-    # Not a str (unlikely in the context of this script, 
+    # Not a str (unlikely in the context of this script,
     # but who knows?)
     if not isinstance(file_name, str):
         print("File name must be a str")
@@ -91,72 +90,72 @@ def valid_filename(file_name: str) -> bool:
     if len(file_name) > 255:
         print("File name too long")
         return False
-    
-    # Iteration to search for a character not in the 
+
+    # Iteration to search for a character not in the
     # whitelist
     for char in file_name:
         if char not in whitelist:
             print("Invalid char in file name")
             return False
-    
+
     # Seems ok
     return True
 
 def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     """Checks the validity of a filekey name.
 
-    The definition of a valid file key name depends on 
-    whether the file key is supposed to be present in the 
+    The definition of a valid file key name depends on
+    whether the file key is supposed to be present in the
     current folder or created by the user.
 
     Args:
         filekey (str): Filekey path
 
-        create (bool): Is the filekey supposed to be 
+        create (bool): Is the filekey supposed to be
         created or not (i.e. found in the current folder)?
 
     Returns:
         bool: Valid filekey name or not
     """
     if not isinstance(filekey, str):
-        print(f"Wrong type, must be a str ({type(filekey)}" 
+        print(f"Wrong type, must be a str ({type(filekey)}"
         " given)")
         return False
 
     # - The filekey will be recovered -
-    # We are looking for a filekey that is supposed to be 
-    # already present in the current folder. We make sure 
-    # the file exists and has the right extension 
+    # We are looking for a filekey that is supposed to be
+    # already present in the current folder. We make sure
+    # the file exists and has the right extension
     if not create:
         if not exists(filekey):
             print(f"{filekey} not found")
             return False
-        
+
         if not filekey.endswith(FILEKEY_EXT):
             print(f"Filekey must be {FILEKEY_EXT}")
             return False
 
     # - The filekey will be created -
-    # We make sure no file with the same name exists 
+    # We make sure no file with the same name exists
     else:
         if exists(filekey + FILEKEY_EXT):
             print(f"{filekey} already exists")
             return False
-    
+
     return True
 
 def valid_filekey_code(filekey: str) -> Union[bool, None]:
-    """Checks whether the key entered by the user is 
-    valid, i.e. whether it's a base64 urlsafe encoding 
+    """Checks whether the key entered by the user is
+    valid, i.e. whether it's a base64 urlsafe encoding
     (used by Fernet for key generation).
 
     Args:
         filekey (str): Given key
 
     Returns:
-        Union[bool, None]: Returns True/False if 
+        Union[bool, None]: Returns True/False if
         verification was successful. None otherwise.
-    """    
+    """
     if exists(filekey):
         if filekey.endswith(FILEKEY_EXT):
             with open(filekey, "r") as f:
@@ -167,23 +166,78 @@ def valid_filekey_code(filekey: str) -> Union[bool, None]:
     else:
         print(f"{filekey} not found")
         return None
-    
+
     if not valid_b64_urlsafe(content):
         return False
     else:
         return True
 
-def read_filekey(filekey: str, return_value: bool = False) -> Union[bool, None]:
-    """Displays or returns the Base64 code of a filekey
+def valid_password(psw: str) -> bool:
+    """Checks the validity of a password.
+
+    Args:
+        psw (str): The given password
+
+    Returns:
+        bool: Valid or not
+    """ 
+    MIN_LENGTH = 5
+    blacklist = [' ']
+
+    if not isinstance(psw, str):
+        print("psw must be a str type")
+        return False
+
+    if len(psw) < MIN_LENGTH:
+        print(f"Password must be at least {MIN_LENGTH} "
+              "characters long")
+        return False
+    
+    for char in psw:
+        if char in blacklist:
+            return False
+
+    return True
+
+def valid_salt(salt: str) -> bool:
+    """Checks the validity of a salt, which must be 
+    base64-encoded.
+
+    Args:
+        salt (str): The given salt value
+
+    Returns:
+        bool: Valid or not
+    """
+    if len(salt) == 0:
+        print("No salt value inserted")
+        return False
+    
+    # No space
+    salt = salt.replace(' ', '')
+       
+    try:
+        salt_ok = base64.urlsafe_b64decode(salt)
+        return True
+    except (ValueError, TypeError):
+        print("Invalid salt, must be a b64")
+        return False
+
+def read_filekey(filekey: str, return_value: bool = False) -> Union[str, None]:
+    """Displays or returns the Base64 key of a filekey.
 
     Args:
         filekey (str): Filekey with extension
 
-        return_value (bool): If True, the 'content' 
-        variable is returned, otherwise it's simply 
-        displayed.
-    """    
+        return_value (bool): If True, the 'content'
+        variable is returned, otherwise it's simply
+        displayed (optional).
     
+    Return:
+        str : The b64 key
+        None : Error
+    """
+
     if valid_filekey_name(filekey):
         with open(filekey, "r") as f:
                 content = f.read()
@@ -195,93 +249,223 @@ def read_filekey(filekey: str, return_value: bool = False) -> Union[bool, None]:
         return None
 
 def create_filekey(file_name: str, key: str) -> None:
-    """Creates a filekey based on a base64 key
+    """Creates a filekey based on a base64 key.
+
+    If the key is valid, this filekey can be used to 
+    encrypt and decrypt data. 
 
     Args:
         file_name (str): Desired name for filekey without
         extension
 
         key (str): Secret key (base64 urlsafe)
+    
+    Return:
+        None : If an error has occurred
     """
 
     if not valid_filename(file_name):
         return None
-    
+
     if not valid_filekey_name(file_name, create = True):
         return None
 
+    # No spaces
     key = key.replace(' ', '')
     key_bytes = bytes(key, 'ascii')
 
     if valid_b64_urlsafe(key_bytes):
         with open(file_name + FILEKEY_EXT, 'wb') as f:
             f.write(key_bytes)
+        print(f"{file_name + FILEKEY_EXT} has been created in the current folder")
     else:
         print("Invalid key, must be base64 urlsafe")
         return None
 
-def encrypt(filename: str, overwrite:bool = True, 
-            given_filekey = None) -> None:
-    """Encrypts a file and generates a secret key
+def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
+    """Creates a Fernet object with a given password and 
+    a salt value.
+
+    psw :
+    Since we can't decently ask the user to enter a 
+    memorable 128-bit password, the inserted password will 
+    be derived in such a way as to comply with Fernet's 
+    standards of use.
+
+    salt :
+    If no salt value is entered, a random value will be 
+    generated.
 
     Args:
-        filename (str): File name to encrypt
-        overwrite (bool, optional): Overwrite the file to 
+        psw (str): Desired name for filekey without
+        extension.
+
+        salt (str | None): Given salt value (optional)
+
+    Return:
+        Fernet: A Fernet objet to encrypt/decrypt
+    """
+    # The password must be handled in bianary form.
+    psw = psw.encode('ascii')
+
+    # No salt inserted, so a salt will be randomly 
+    # generated. 
+    if salt == None:
+        salt = urandom(16) # 16 random bytes
+
+        # The salt value is converted to b64 so that it 
+        # can be displayed in a way that is readable 
+        # enough for the user.
+        salt_b64 = base64.urlsafe_b64encode(salt).decode('ascii')
+        print("- - - - SALT (KEEP IT SAFE) - - - - -")
+        print(f"{salt_b64}")
+        print("- - - - - - - - - - - - - - - - - - -")
+
+    # A salt has been inserted. Its validity is checked 
+    # from the call functions (encrypt, decrypt). We expect 
+    # a value of type b64 urlsafe
+    else:
+        salt = base64.urlsafe_b64decode(salt)
+
+    # - - - - Derivation algorithm PBKDF2HMAC - - - -
+    # * algorithm : Specifies the hash algorithm to be used 
+    # for key derivation.
+    #
+    # * length : Determines the length of the generated key 
+    # in bytes.
+    #
+    # * salt : Value, ideally random, to salt the password 
+    # before hashing. This makes dictionary attacks and 
+    # rainbow tables less effective.
+    #
+    # * iterations : Specifies the number of times the 
+    # hash function will be applied. The higher the number,
+    # the more difficult it is to break the password by 
+    # brute force.
+    kdf = PBKDF2HMAC(
+        algorithm = hashes.SHA256(),
+        length = 32,
+        salt = salt,
+        iterations = 480000,
+        )
+    
+    # The password is derived and combined with the 
+    # previously specified parameters. The key is 
+    # converted to b64 urlsafe to comply with Fernet 
+    # standards
+    key = base64.urlsafe_b64encode(kdf.derive(psw))
+    f = Fernet(key)
+
+    return f
+
+def encrypt(filename: str, overwrite:bool = True, 
+            given_filekey: Union[str, None] = None, 
+            psw: Union[str, None] = None, 
+            salt: Union[str, None] = None) -> None:
+    """Encrypts a file in 3 different ways :
+
+    1. By generating a random filekey in the current 
+    folder
+    2. By retrieving a filekey already present in the 
+    current folder
+    3. Based on a password and a salt
+
+    These 3 methods are mutually exclusive
+
+    Args:
+        filename (str): File name to encrypt.
+
+        overwrite (bool, optional): Overwrite the file to
         encrypt. Defaults to True.
+
+        given_filekey (str | None): Name of the filekey 
+        already present in the current folder for 
+        encrypting with. Defaults to None.
+
+        psw (str | None): Password to encrypt the file.
+        Defaults to None.
+
+        salt (str | None): Custom salt given to encrypt
+        the file. Defaults to None.
 
     Returns:
         None: If an error has been encountered
-    """    
+    """
     print(f"---- Encryption of {filename} ----")
 
-    # No filekey given, a random key will be generated.
-    # --keyfile = False
-    if given_filekey == None:
-        generated_filekey_name = 'filekey' + FILEKEY_EXT
+    # No password given : function will be dealing with a filekey
+    if psw == None:
+        # No filekey given, a random key will be generated.
+        # --keyfile = False
+        if given_filekey == None:
+            generated_filekey_name = 'filekey' + FILEKEY_EXT
 
-        # If a 'filekey.key' file already exists in the 
-        # current folder, the user is prompted to choose 
-        # another name for the key to be generated.
-        while exists(generated_filekey_name):
-            choice = input(f"{generated_filekey_name} already " 
-            "exists in the current folder, choose another name" 
-            " (without extension): ")
+            # If a 'filekey.key' file already exists in the
+            # current folder, the user is prompted to choose
+            # another name for the key to be generated.
+            while exists(generated_filekey_name):
+                choice = input(f"{generated_filekey_name} already "
+                "exists in the current folder, choose another name"
+                " (without extension): ")
 
-            if valid_filename(choice):
-                generated_filekey_name = choice + FILEKEY_EXT
+                if valid_filename(choice):
+                    generated_filekey_name = choice + FILEKEY_EXT
+                else:
+                    print("Invalid file name, please avoid spaces"
+                    " and symbols")
+                    continue
+
+            # Filekey generation
+            print(f"Filekey generation ({generated_filekey_name})...")
+            key = Fernet.generate_key()
+            with open(generated_filekey_name, 'wb') as filekey:
+                filekey.write(key)
+
+        # FILEKEY GIVEN
+        if given_filekey != None:
+            if valid_filekey_name(given_filekey):
+                generated_filekey_name = given_filekey
             else:
-                print("Invalid file name, please avoid spaces"
-                " and symbols")
-                continue
+                return None
 
-        # Filekey generation
-        print(f"Filekey generation ({generated_filekey_name})...")
-        key = Fernet.generate_key()
-        with open(generated_filekey_name, 'wb') as filekey:
-            filekey.write(key)
-    
-    # FILEKEY GIVEN
-    else:
-        if valid_filekey_name(given_filekey):
-            generated_filekey_name = given_filekey
+        # Filekey reading and retrieved as bytes
+        if given_filekey == None:
+            print("Generated filekey reading...")
         else:
+            print(f"Given filekey reading ({generated_filekey_name})...")
+
+        try:
+            with open(generated_filekey_name, 'rb') as filekey:
+                key = filekey.read() # key = bytes
+        except FileNotFoundError:
+            print(f"Error : No such keyfile : {filename} in the current folder")
             return None
 
-    # Filekey reading and retrieved as bytes
-    if given_filekey == None:
-        print("Generated filekey reading...")
+        # Fernet object creation with the generated key
+        f = Fernet(key)
+
+    # Password given : function will be dealing without a 
+    # filekey
     else:
-        print(f"Given filekey reading ({generated_filekey_name})...")
+        # No salt entered, only password needs to be checked
+        if salt == None:
+            if valid_password(psw):
+                f = psw_derivation(psw, salt)
+            else:
+                return None
+        
+        # A salt has been inserted, the password and salt 
+        # must be verified.
+        elif salt != None:
+            if valid_password(psw) and valid_salt(salt):
+                f = psw_derivation(psw, salt)
+            else:
+                return None
 
-    try:
-        with open(generated_filekey_name, 'rb') as filekey:
-            key = filekey.read() # key = bytes
-    except FileNotFoundError:
-        print(f"Error : No such keyfile : {filename} in the current folder")
-        return None
-
-    # Fernet object creation with the generated key
-    f = Fernet(key)
+        # Who knows ?
+        else:
+            print("Unexpected error (encrypt with psw)")
+            return None
 
     # Copying the file before overwriting it
     if overwrite == False:
@@ -293,8 +477,10 @@ def encrypt(filename: str, overwrite:bool = True,
         try:
             shutil.copyfile(filename, copy_filename)
         except FileNotFoundError:
-            print(f"Error : No such file : {filename} in the current folder")
-            remove(generated_filekey_name)
+            print(f"Error : No such file : {filename} " 
+                  "in the current folder")
+            if psw == None:
+                remove(generated_filekey_name)
             return None
 
     # Recovery the file to be encrypted in bytes
@@ -303,53 +489,82 @@ def encrypt(filename: str, overwrite:bool = True,
         with open(filename, 'rb') as file:
             file_bytes = file.read() # file_bytes = bytes
     except FileNotFoundError:
-        print(f"Error : No such file : {filename} in the current folder")
-        remove(generated_filekey_name)
+        print(f"Error : No such file : {filename} in the "
+              "current folder")
+        if psw == None:
+            remove(generated_filekey_name)
         return None
-    
+
     # Bytes data encryption
     print(f"Data encryption...")
     encrypted = f.encrypt(file_bytes)
+    #print(encrypted)
 
     # Overwriting the file with encrypted bytes data
     print(f"Encrypted data writing...")
     with open(filename, 'wb') as encrypted_file:
         encrypted_file.write(encrypted)
-    
-    print("---- Operation completed successfully ----")
-    if given_filekey == None:
-        print("A keyfile.key file has been generated in the current folder,"
-        " please keep it safe")
 
-def decrypt(filename: str, filekey_name: str) -> None:
-    """Decrypts a file using a secret key 
+    print("---- Operation completed successfully ----")
+    if given_filekey == None and psw == None:
+        print("A keyfile.key file has been generated in the " 
+              "current folder, please keep it safe")
+
+def decrypt(filename: str,
+            filekey_name: Union[str, None] = None, 
+            psw: Union[str, None] = None, 
+            salt: Union[str, None] = None) -> None:
+    """Decrypts a file in 2 different ways :
+
+    1. By using filekey present in the current folder
+    2. By using a password and a salt
+
+    These 2 methods are mutually exclusive.
 
     Args:
         filename (str): Name of file to be decrypted
-        filekey_name (str): Secret key to use for decryption
+
+        filekey_name (str | None): Name of the filekey 
+        already present in the current folder for 
+        decrypt with. Defaults to None.
+        
+        psw (str | None): Password to decrypt the file.
+        Defaults to None.
+        
+        salt (str | None): Salt value given to decrypt
+        the file. Defaults to None.
 
     Returns:
         None: If an error has been encountered
-    """        
+    """
     print(f"---- Decryption of {filename} ----")
 
-    if not valid_filekey_name(filekey_name):
-        return None
+    # No password given : function will be dealing with a filekey
+    if psw == None:
+        if not valid_filekey_name(filekey_name):
+            return None
 
-    # Filekey reading and retrieved as bytes
-    print(f"Filekey reading ({filekey_name})...")
-    try:
-        with open(filekey_name, 'rb') as filekey:
-            key = filekey.read() # key = bytes
-    except FileNotFoundError:
-        print(f"Error : No such filekey : '{filekey_name}'"
-        " in the current folder")
-        return None
-    
-    # Fernet object creation with key
-    f = Fernet(key)
+        # Filekey reading and retrieved as bytes
+        print(f"Filekey reading ({filekey_name})...")
+        try:
+            with open(filekey_name, 'rb') as filekey:
+                key = filekey.read() # key = bytes
+        except FileNotFoundError:
+            print(f"Error : No such filekey : '{filekey_name}'"
+            " in the current folder")
+            return None
 
-    # Recovery the file to be decrypted in bytes
+        # Fernet object creation with key
+        f = Fernet(key)
+
+    # Password given : function will be dealing without a filekey
+    else:
+        if valid_password(psw) and valid_salt(salt):
+            f = psw_derivation(psw, salt)
+        else:
+            return None
+
+    # Recovery the file to be decrypted (bytes)
     print(f"{filename} reading...")
     try:
         with open(filename, 'rb') as encrypted_file:
@@ -357,13 +572,13 @@ def decrypt(filename: str, filekey_name: str) -> None:
     except FileNotFoundError:
         print(f"Error : No such file : '{filename}' in the current folder")
         return None
-    
-    # Bytes data decryption
+
+    # File data decryption
     print("Decrypting data...")
     try :
         decrypted = f.decrypt(encrypted)
     except InvalidToken:
-        print("Error : Invalid keyfile")
+        print("Error : Invalid filekey")
         return None
 
     # Overwriting the file with decrypted bytes data
@@ -375,11 +590,11 @@ def decrypt(filename: str, filekey_name: str) -> None:
     print("Operation completed successfully")
 
 def main():
-    """The argparse structure is defined, as are its call 
+    """The argparse structure is defined, as are its call
     logics
     """
     # - - - - - - Argparse structure - - - - - -
-    
+
     # Main parser
     parser = argparse.ArgumentParser(
         description="Script to encrypt/decrypt files "
@@ -429,51 +644,88 @@ def main():
         help= "Path of file to be encrypted")
     parser_encrypt.add_argument("-f", "--filekey",
         help= "Path of the existing filekey", default=None)
-    
-    # The -overwrite and -copy options are mutually 
+    parser_encrypt.add_argument("-p", "--password", default= None,
+        help= "Encrypts with a given password")
+    parser_encrypt.add_argument("-s", "--salt", default= None,
+        help= "Salt")
+
+    # The -overwrite and -copy options are mutually
     # exclusive, only one of them can be called.
     # Choosing either option is mandatory
     group_encrypt = parser_encrypt.add_mutually_exclusive_group(required=True)
-    group_encrypt.add_argument("-ow", "--overwrite", 
+    group_encrypt.add_argument("-ow", "--overwrite",
         action="store_true", help= "Overwrites the file")
     group_encrypt.add_argument("-c", "--copy",
         action="store_true", help= "Copy the plain-text file "
         "before overwriting it in its encrypted version")
-    
+
     # - - - - - - Command : decrypt
     parser_decrypt = subparsers.add_parser("decrypt",
         help= "Decrypts a file")
-    parser_decrypt.add_argument("filename", 
+    parser_decrypt.add_argument("filename",
         help= "Path to the file to decrypt")
-    parser_decrypt.add_argument("filekey",
-        help= "The filekey containing the secret key for" 
+    parser_decrypt.add_argument("filekey", nargs="?",
+        help= "The filekey containing the secret key for"
         " decrypting the file")
-    
+    parser_decrypt.add_argument("-p", "--password", default= None,
+        help= "Decrypts with a given password")
+    parser_decrypt.add_argument("-s", "--salt", default= None,
+        help= "Salt")
+
     # - - - - - - Call logics - - - - - -
     args = parser.parse_args()
 
     if args.command == "install":
         install_from_requirements()
-    
+
     elif args.command == "read":
         read_filekey(args.filekey)
-    
+
     elif args.command == "create":
         create_filekey(args.filename, args.key)
-    
+
     elif args.command == "encrypt":
-        if args.overwrite and not args.copy:
-            encrypt(args.filename, True, args.filekey)
+        if (args.password and args.filekey):
+            print("ERROR : You must provide either a 'filekey' or a "
+                "'--password'.")
+            return None
+
+        elif args.overwrite and not args.copy:
+            encrypt(args.filename, overwrite=True, 
+                    given_filekey=args.filekey, 
+                    psw=args.password, salt=args.salt)
+
         elif args.copy and not args.overwrite:
-            encrypt(args.filename, False, args.filekey)
+            encrypt(args.filename, overwrite=False, 
+                    given_filekey=args.filekey, 
+                    psw=args.password, salt=args.salt)
+
         else:
             print("ERROR")
-    
+
     elif args.command == "decrypt":
-        decrypt(args.filename, args.filekey)
-    
+        # Wrong command
+        if (args.password is None and args.filekey is None) or (args.password and args.filekey):
+            print("ERROR : You must provide either a 'filekey' or a "
+                "'--password'.")
+            return None
+
+        # File must be decrypted with a password
+        elif args.password:
+            # Password derivation with a random salt
+            if args.salt == None:
+                decrypt(args.filename, psw=args.password)
+            # Password derivation with a given salt
+            else:
+                decrypt(args.filename, psw=args.password, 
+                        salt=args.salt)
+
+        # File must be decrypted with a filekey
+        else:
+            decrypt(args.filename, args.filekey)
+
     else:
         print("ERROR : Unknown argument")
-        
+
 if __name__ == "__main__":
     main()
