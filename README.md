@@ -65,7 +65,7 @@ When no salt value is entered, the script will automatically generate one in the
 
 > **Caution**: With identical passwords, two encrypted files cannot be decrypted if they have different salt values. That's why it's crutial to keep both the password AND the salt in a safe place. If the file is encrypted again without specifying a salt value, a new one will be randomly generated, making the old one obsolete. 
 
-Let's say we have an image named `image.jpg` in the current folder and we want to encrypt it with the password: `notastrongpsw` (*a password whose only virtue is that it's honest*): 
+Let's say we have an image named `image.jpg` in the current folder and we want to encrypt it with the password: `notastrongpsw` (*a password whose only virtue is honesty*): 
 
 `python filecrypt.py encrypt image.jpg -p notastrongpsw -ow`
 
