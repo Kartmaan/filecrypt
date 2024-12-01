@@ -156,6 +156,15 @@ Here, we want to extract the timestamp from an encrypted file named `image.jpg`
 #### Method 2 : By using a file encrypted with a password and a salt
 `python filecrypt.py timestamp image.jpg -p notastrongpsw -s yAccWy42_ngl2wDMO528jg==`
 
+**Output** :
+```
+- - - - - - - - - - - - - - - - - - - -
+image.jpg was encrypted at : 2024-12-01 18:35:59
+Since 2 hours, 9 minutes, 3 seconds
+Timestamp : 1733074559
+- - - - - - - - - - - - - - - - - - - -
+```
+
 ## Some technical details
 ### What's Fernet ?
 Fernet (from `cryptography` module) is an implementation of the AES algorithm using a 128-bit key. Fernet offers an abstraction that allows developers to encrypt and decrypt data without having to worry about the complexities of implementing AES and other security mechanisms.
