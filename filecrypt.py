@@ -1,12 +1,15 @@
+import argparse
+import base64
+from datetime import datetime as dt
+from dateutil.relativedelta import relativedelta
 from os import remove, urandom
 from os.path import exists
-from typing import Union
+from shutil import copyfile
+from string import ascii_letters, digits
 import subprocess
-import argparse
 import sys
-import string
-import shutil
-import base64
+import time
+from typing import Union
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -76,8 +79,7 @@ def valid_filename(file_name: str) -> bool:
     # Whitelist composed of letters, numbers and the
     # underscore symbol
     symbols = ['_']
-    letters_digits = list(string.ascii_letters +
-    string.digits)
+    letters_digits = list(ascii_letters + digits)
     whitelist = symbols + letters_digits
 
     # Not a str (unlikely in the context of this script,
@@ -138,39 +140,47 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     # - The filekey will be created -
     # We make sure no file with the same name exists
     else:
+        if not valid_filename(filekey):
+            return False
+        
         if exists(filekey + FILEKEY_EXT):
             print(f"{filekey} already exists")
             return False
 
     return True
 
-def valid_filekey_code(filekey: str) -> Union[bool, None]:
-    """Checks whether the key entered by the user is
-    valid, i.e. whether it's a base64 urlsafe encoding
-    (used by Fernet for key generation).
+def valid_filekey_key(filekey: str) -> Union[bool, None]:
+    """Checks whether the key present in a filekey is valid.
 
     Args:
-        filekey (str): Given key
+        filekey (str): Given filekey
 
     Returns:
         Union[bool, None]: Returns True/False if
         verification was successful. None otherwise.
     """
-    if exists(filekey):
-        if filekey.endswith(FILEKEY_EXT):
-            with open(filekey, "r") as f:
-                content = f.read()
-        else:
-            print(f"Filekey must be a {FILEKEY_EXT}")
-            return None
-    else:
-        print(f"{filekey} not found")
-        return None
+    with open(filekey, "r") as f:
+        content = f.read()
 
     if not valid_b64_urlsafe(content):
         return False
     else:
         return True
+
+def valid_filekey(filekey: str) -> bool:
+    """Checks the validity of a filekey's name as well as 
+    its contents
+
+    Args:
+        filekey (str): Filekey name (with extension)
+
+    Returns:
+        bool: _description_
+    """    
+    if valid_filekey_name(filekey) and valid_filekey_key(filekey):
+        return True
+    else:
+        return False
 
 def valid_password(psw: str) -> bool:
     """Checks the validity of a password.
@@ -238,7 +248,7 @@ def read_filekey(filekey: str, return_value: bool = False) -> Union[str, None]:
         None : Error
     """
 
-    if valid_filekey_name(filekey):
+    if valid_filekey(filekey):
         with open(filekey, "r") as f:
                 content = f.read()
                 if not return_value:
@@ -281,6 +291,123 @@ def create_filekey(file_name: str, key: str) -> None:
     else:
         print("Invalid key, must be base64 urlsafe")
         return None
+
+def since_when(token_timestamp: int) -> Union[str, None]:
+    """Returns the elapsed time between an inserted 
+    timestamp and the current one. The function returns 
+    the elapsed time by units of time in a readable form.
+    Example : "2 days, 1 hour, 22 minutes, 6 seconds"
+
+    The function uses the 'relativedelta' method from 
+    'dateutil' module to take into account the variable 
+    length of months and years.
+
+    Args:
+        token_timestamp (int): The given timestamp
+
+    Returns:
+        str: Text of the elapsed time.
+        None: Error.
+    """
+
+    # Invalid timestamp
+    if not isinstance(token_timestamp, int) or token_timestamp <= 0:
+        raise ValueError("Error: invalid timestamp, must be a positive integer")
+    
+    now = dt.now()
+
+    # Time travellers are not allowed to use this feature.
+    if token_timestamp > now.timestamp():
+        raise ValueError("Error: the timestamp cannot be in the future.")
+    
+    # Elapsed time calculation
+    datetime_token = dt.fromtimestamp(token_timestamp)
+    delta = relativedelta(now, datetime_token)
+    
+    # Time units
+    years = delta.years
+    months = delta.months
+    days = delta.days
+    hours = delta.hours
+    minutes = delta.minutes
+    seconds = delta.seconds
+
+    # We place these values in a dictionary so that we 
+    # can easily browse them to display only those time 
+    # units whose value is not zero.
+    delta_dict = {
+        "year" : years, "month" : months, "day" : days,
+        "hour" : hours, "minute" : minutes, 
+        "second" : seconds
+    }
+
+    # The dictionary is browsed for time units with a 
+    # non-zero value. If the value is greater than 1, 
+    # an 's' is added after the unit to make it plural.
+    parts = [f"{val} {key}{'' if val == 1 else 's'}"
+             for key, val in delta_dict.items() if val != 0]
+    
+    # Very fast user
+    if not parts:
+        return "Just now"
+
+    return ", ".join(parts)
+
+def get_timestamp(encrypted_file: str, 
+                  filekey: Union[str, None] = None,
+                  psw: Union[str, None] = None, 
+                  salt: Union[str, None] = None) -> None:
+    """Returns the timestamp for the token 
+
+    Args:
+        encrypted_file (str): Encrypted file name present 
+        in the current folder
+    
+    Return:
+        int : The Unix timestamp of the token
+    """
+    if not exists(encrypted_file):
+        print(f"{encrypted_file} not found")
+        return None
+    
+    # From a file crypted with a filekey
+    if filekey != None and (psw == None and salt == None):
+        if not valid_filekey(filekey):
+            return None
+
+        with open(filekey, 'rb') as key_file:
+            key = key_file.read()
+        
+        f = Fernet(key)
+    
+    # From a file crypted with a psw and a salt
+    elif (psw != None and salt != None) and filekey == None:
+        if valid_password(psw) and valid_salt(salt):
+            f = psw_derivation(psw, salt)
+        else:
+            return None
+    
+    # ERROR
+    else:
+        print("Wrong args combinaison, must be :")
+        print("encryted_file + filekey OR "
+              "encypted_file + psw + salt")
+        return None
+
+    with open(encrypted_file, 'rb') as encrypted_data:
+        token = encrypted_data.read()
+    
+    try:
+        timestamp = f.extract_timestamp(token)
+        readable_time = dt.fromtimestamp(timestamp)
+        print("- - - - - - - - - - - - - - - - - - - -")
+        print(f"{encrypted_file} was encrypted at " 
+            f": {readable_time}")
+        print(f"Since {since_when(timestamp)}")
+        print(f"Timestamp : {timestamp}")
+        print("- - - - - - - - - - - - - - - - - - - -")
+    except Exception as e:
+        print(e)
 
 def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
     """Creates a Fernet object with a given password and 
@@ -423,7 +550,7 @@ def encrypt(filename: str, overwrite:bool = True,
 
         # FILEKEY GIVEN
         if given_filekey != None:
-            if valid_filekey_name(given_filekey):
+            if valid_filekey(given_filekey):
                 generated_filekey_name = given_filekey
             else:
                 return None
@@ -447,6 +574,35 @@ def encrypt(filename: str, overwrite:bool = True,
     # Password given : function will be dealing without a 
     # filekey
     else:
+        # Security checkpoint. The procedure will encrypt 
+        # the file by overwriting it with a new salt value.
+        # The operation is critical enough to attract the 
+        # user's attention.
+        if overwrite and (psw != None and salt == None):
+            choice = ''
+            available_choices = ['y', 'yes', 'n', 'no'] 
+
+            while choice not in available_choices:
+                choice = input("CAUTION: "
+                "You are about to encrypt the file "
+                f"{filename} by overwriting it " 
+                "with a NEW randomly generated salt.\n"
+                "The new salt value will be displayed after " 
+                "confirmation and must be noted and kept carefully.\n" 
+                "Do you confirm this operation? (y/n)")
+                choice = choice.lower()
+
+                if choice == 'n' or choice == 'no':
+                    print("Operation cancellation...")
+                    return None
+                
+                elif choice == 'y' or choice == 'yes':
+                    pass
+
+                else:
+                    print("Wrong input")
+                    continue
+
         # No salt entered, only password needs to be checked
         if salt == None:
             if valid_password(psw):
@@ -464,7 +620,7 @@ def encrypt(filename: str, overwrite:bool = True,
 
         # Who knows ?
         else:
-            print("Unexpected error (encrypt with psw)")
+            print("Unexpected error ('encrypt' with psw)")
             return None
 
     # Copying the file before overwriting it
@@ -475,14 +631,14 @@ def encrypt(filename: str, overwrite:bool = True,
         copy_filename = name + ext
         print("File copy before overwriting...")
         try:
-            shutil.copyfile(filename, copy_filename)
+            copyfile(filename, copy_filename)
         except FileNotFoundError:
             print(f"Error : No such file : {filename} " 
                   "in the current folder")
             if psw == None:
                 remove(generated_filekey_name)
             return None
-
+        
     # Recovery the file to be encrypted in bytes
     print(f"{filename} reading...")
     try:
@@ -498,14 +654,13 @@ def encrypt(filename: str, overwrite:bool = True,
     # Bytes data encryption
     print(f"Data encryption...")
     encrypted = f.encrypt(file_bytes)
-    #print(encrypted)
 
     # Overwriting the file with encrypted bytes data
     print(f"Encrypted data writing...")
     with open(filename, 'wb') as encrypted_file:
         encrypted_file.write(encrypted)
 
-    print("---- Operation completed successfully ----")
+    print(f"---- Operation completed successfully ----")
     if given_filekey == None and psw == None:
         print("A keyfile.key file has been generated in the " 
               "current folder, please keep it safe")
@@ -541,7 +696,7 @@ def decrypt(filename: str,
 
     # No password given : function will be dealing with a filekey
     if psw == None:
-        if not valid_filekey_name(filekey_name):
+        if not valid_filekey(filekey_name):
             return None
 
         # Filekey reading and retrieved as bytes
@@ -587,14 +742,16 @@ def decrypt(filename: str,
     with open(filename, 'wb') as decrypted_file:
         decrypted_file.write(decrypted)
 
-    print("Operation completed successfully")
+    print(f"---- Operation completed successfully ----")
 
-def main():
+def main() -> None:
     """The argparse structure is defined, as are its call
     logics
-    """
-    # - - - - - - Argparse structure - - - - - -
 
+    Returns:
+        None: Error
+    """    
+    # - - - - - - Argparse structure - - - - - -
     # Main parser
     parser = argparse.ArgumentParser(
         description="Script to encrypt/decrypt files "
@@ -621,6 +778,31 @@ def main():
     parser_read.add_argument(
         "filekey",
         help="Path to keyfile"
+    )
+    
+    # - - - - - - Command : timestamp
+    parser_timestamp = subparsers.add_parser(
+        "timestamp",
+        help="Extracts a timestamp from a token"
+    )
+    parser_timestamp.add_argument(
+        "encrypted_file",
+        help="Encrypted file name in the current folder"
+    )
+    parser_timestamp.add_argument(
+        "-f", "--filekey",
+        help="Filekey name in the current folder",
+        default= None
+    )
+    parser_timestamp.add_argument(
+        "-p", "--password",
+        help="Password to decrypt the file",
+        default= None
+    )
+    parser_timestamp.add_argument(
+        "-s", "--salt",
+        help="Salt to decrypt the file",
+        default= None
     )
 
     # - - - - - - Command : create
@@ -680,6 +862,12 @@ def main():
 
     elif args.command == "read":
         read_filekey(args.filekey)
+    
+    elif args.command == "timestamp":
+        get_timestamp(
+            encrypted_file=args.encrypted_file,
+            filekey= args.filekey, psw= args.password,
+            salt= args.salt)
 
     elif args.command == "create":
         create_filekey(args.filename, args.key)
