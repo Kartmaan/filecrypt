@@ -1,3 +1,24 @@
+""" 
+Filecrypt encrypts/decrypts files in the current folder 
+using the AES algorithm via the Fernet implementation.
+
+To do this, simply :
+- Place this script in the folder containing the file(s) 
+to be encrypted or decrypted.
+- Go to this folder from the terminal.
+- Call the script: 'python filescript.py' followed by the 
+desired command.
+
+Example : 'python filecrypt.py encrypt image.jpg -ow'
+
+All information on available commands :
+https://github.com/Kartmaan/filecrypt
+
+Author : Kartmaan
+Date : 2024-12-05
+Version : 1.0.1
+"""
+
 import argparse
 import base64
 from datetime import datetime as dt
@@ -8,7 +29,6 @@ from shutil import copyfile
 from string import ascii_letters, digits
 import subprocess
 import sys
-import time
 from typing import Union
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -22,9 +42,8 @@ def install_from_requirements(requirements_file="requirements.txt"):
     Installs modules listed in a txt file.
 
     Args:
-        requirements_file (str, optionnal): The path to
-        the file. By default, searches for requirements.txt
-        in the current folder.
+        requirements_file (str): The path to
+        the file. Default to 'requirements.txt'. (optional)
     """
     try:
         # Opens the file in read mode
@@ -106,7 +125,7 @@ def valid_filename(file_name: str) -> bool:
 def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     """Checks the validity of a filekey name.
 
-    The definition of a valid file key name depends on
+    The definition of a valid filekey name depends on
     whether the file key is supposed to be present in the
     current folder or created by the user.
 
@@ -114,7 +133,8 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
         filekey (str): Filekey path
 
         create (bool): Is the filekey supposed to be
-        created or not (i.e. found in the current folder)?
+        created or not (i.e. found in the current folder) ?
+        Default to False. (optional)
 
     Returns:
         bool: Valid filekey name or not
@@ -175,7 +195,7 @@ def valid_filekey(filekey: str) -> bool:
         filekey (str): Filekey name (with extension)
 
     Returns:
-        bool: _description_
+        bool: Valid or not
     """    
     if valid_filekey_name(filekey) and valid_filekey_key(filekey):
         return True
@@ -241,11 +261,11 @@ def read_filekey(filekey: str, return_value: bool = False) -> Union[str, None]:
 
         return_value (bool): If True, the 'content'
         variable is returned, otherwise it's simply
-        displayed (optional).
+        displayed. Default to False. (optional)
     
     Return:
         str : The b64 key
-        None : Error
+        None : If an error has occurred
     """
 
     if valid_filekey(filekey):
@@ -357,11 +377,28 @@ def get_timestamp(encrypted_file: str,
                   filekey: Union[str, None] = None,
                   psw: Union[str, None] = None, 
                   salt: Union[str, None] = None) -> None:
-    """Returns the timestamp for the token 
+    """Returning the timestamp of a Fernet token. 
+    Depending on the method used to encrypt the file: 
+    with a filekey or with a password.
+
+    Mutually exclusive args:
+    If the 'filekey' argument is set, the 'psw' and 'salt' 
+    arguments must not be. Conversely, if 'psw' and 
+    'salt' are set, 'filekey' must not be.
 
     Args:
         encrypted_file (str): Encrypted file name present 
         in the current folder
+
+        filekey (str | None): The filekey used to encrypt 
+        the file. Defaults to None.
+
+        psw (str | None): The password used to encrypt the 
+        file. Defaults to None.
+
+        salt (str | None): The salt used in combination 
+        with the password to encrypt the file. 
+        Defaults to None.
     
     Return:
         int : The Unix timestamp of the token
@@ -427,7 +464,8 @@ def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
         psw (str): Desired name for filekey without
         extension.
 
-        salt (str | None): Given salt value (optional)
+        salt (str | None): Given salt value.
+        Defaults to None. (optional)
 
     Return:
         Fernet: A Fernet objet to encrypt/decrypt
@@ -495,15 +533,15 @@ def encrypt(filename: str, overwrite:bool = True,
     folder
     2. By retrieving a filekey already present in the 
     current folder
-    3. Based on a password and a salt
+    3. By taking a password and a salt
 
-    These 3 methods are mutually exclusive
+    These 3 methods are mutually exclusive.
 
     Args:
         filename (str): File name to encrypt.
 
-        overwrite (bool, optional): Overwrite the file to
-        encrypt. Defaults to True.
+        overwrite (bool): Overwrite the file to
+        encrypt. Defaults to True. (optional)
 
         given_filekey (str | None): Name of the filekey 
         already present in the current folder for 

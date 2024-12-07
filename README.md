@@ -1,4 +1,6 @@
 - [Filecrypt](#filecrypt)
+  - [How to use it](#how-to-use-it)
+- [Commands](#commands)
   - ['encrypt' command](#encrypt-command)
     - [overwrite option](#overwrite-option)
     - [Examples](#examples)
@@ -19,16 +21,25 @@
     - [Example](#example-3)
       - [Method 1 : By using a file encrypted with a filekey](#method-1--by-using-a-file-encrypted-with-a-filekey)
       - [Method 2 : By using a file encrypted with a password and a salt](#method-2--by-using-a-file-encrypted-with-a-password-and-a-salt)
-  - [Some technical details](#some-technical-details)
-    - [What's Fernet ?](#whats-fernet-)
-    - [What level of security?](#what-level-of-security)
-    - [Key and token](#key-and-token)
-      - [Key](#key)
-      - [Token](#token)
+- [Some technical details](#some-technical-details)
+  - [What's Fernet ?](#whats-fernet-)
+  - [What level of security?](#what-level-of-security)
+  - [Key and token](#key-and-token)
+    - [Key](#key)
+    - [Token](#token)
 
 # Filecrypt
-This Python script allows to **encrypt and decrypt files present in the current folder of the script**. The program is based on the `cryptography` module and in particular its Fernet class allowing symmetric encryption using the 128-bit AES algorithm.
+This Python script encrypts/decrypts files located in the script's current folder. The program is based on **Fernet**, an implementation of the AES-128 algorithm.
 
+## How to use it
+To use this script, simply :
+1. Place this script (*or a copy*) in the folder containing the files to be encrypted or decrypted.
+2. Go to this folder from the terminal.
+3. Call the script followed by the desired command. For example: 
+
+    `C:\Users\Bob\Pictures> python filecrypt.py encrypt image.jpg -ow`
+
+# Commands
 ## 'encrypt' command
 Encrypts a file present in the current folder using three different methods :
 1. By generating a random filekey in the current folder
@@ -156,11 +167,11 @@ Here, we want to extract the timestamp from an encrypted file named `image.jpg`
 #### Method 2 : By using a file encrypted with a password and a salt
 `python filecrypt.py timestamp image.jpg -p notastrongpsw -s yAccWy42_ngl2wDMO528jg==`
 
-## Some technical details
-### What's Fernet ?
+# Some technical details
+## What's Fernet ?
 Fernet (from `cryptography` module) is an implementation of the AES algorithm using a 128-bit key. Fernet offers an abstraction that allows developers to encrypt and decrypt data without having to worry about the complexities of implementing AES and other security mechanisms.
 
-### What level of security?
+## What level of security?
 * **AES** : Data is encrypted using AES (**A**dvanced **E**ncryption **S**tandard), a symmetrical encryption algorithm that encrypts data in blocks of a fixed size.
 
 
@@ -198,10 +209,10 @@ Fernet (from `cryptography` module) is an implementation of the AES algorithm us
   ><p style="text-align: center;"><b>Salt</b></p>
   >Imagine you want to preserve a dish with a unique taste. To make it inimitable, you can add a pinch of specific salt to your recipe. This salt, unique to your dish, will make it impossible for anyone else to reproduce exactly the same taste using the same basic ingredients. In cryptography, the “salt” plays a similar role. It's a random string of characters added to a password before it's hashed. This hash, i.e. the transformation of the password into a fixed-length string of characters, is used to store the password securely. Thus, even if the attacker recovers the master key (the password), it will be useless to him if it's not combined with the salt value.
 
-### Key and token
+## Key and token
 The key and the token are two key concepts used by Fernet to encrypt and decrypt data.
 
-#### Key
+### Key
 A 256-bit key (32 bytes), randomly generated and used to encrypt and decrypt data. The key is divided into two parts: an **encryption key** and a **signing key**, each 128 bits (16 bytes) long. This division is at the heart of Fernet's cryptographic mechanism, which combines encryption and authentication.
 
 * **Key format** : A base64url key with the following fields:
@@ -211,7 +222,7 @@ A 256-bit key (32 bytes), randomly generated and used to encrypt and decrypt dat
   
   So, if the encryption-key part is modified, decryption becomes impossible, and if the signing-key part is modified, the token's HMAC is no longer valid, and here again, decryption is impossible.
 
-#### Token
+### Token
 A data container encapsulating everything needed to decrypt the data or verify its integrity.
 
 * **Token format** : Coded in base64 urlsafe, it contains the following fields:
