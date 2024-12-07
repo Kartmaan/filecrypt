@@ -205,16 +205,20 @@ Fernet (from `cryptography` module) is an implementation of the AES algorithm us
 * **SHA-256** : A cryptographic hash function that produces a 256-bit hash value. It's used to generate the **M**essage **A**uthentication **C**ode.
 
 
-* **Password & Salt** : Data can be encrypted using a user-memorable password, which is **derived** to be 128 bits long key. This password is also “mixed” with a sequence of random bits called “**salt**” before being hashed. In this way, knowing or guessing the password is not enough to decrypt the message, knowing the salt value is also necessary.
+* **Password & Salt** : Data can be encrypted using a user-memorable password, which is **derived** to be 128 bits long key. This password is also “mixed” with a sequence of random bits called “**salt**” before being hashed.
 
 
-* **Key derivation** : principle of using a single secret key (<i>often called the master key, represented here by our password</i>) to generate several different keys of any desired length (<i>using an algorithm, PBKDF2 in our case</i>). To create these new keys, we generally use cryptographic hash functions. These functions take as input the master key (<i>our password</i>) and other information, such as the salt, to produce as output a unique and difficult-to-invert value, which will be our new key. This method has several advantages:
+* **Key derivation** : principle of using a single secret key (*often called the master key, represented here by our password*) to generate several different keys of any desired length (*using an algorithm, PBKDF2 in our case*). To create these new keys, we generally use cryptographic hash functions. These functions take as input the master key (*our password*) and other information, such as the salt, to produce as output a unique and difficult-to-invert value, which will be our new key. This method has several advantages:
   - **Security** : By having several derived keys, we limit the risks if one key is compromised. If an attacker discovers one of the derived keys, he won't have access to the master key and therefore to the other keys
   - **Flexibility** : We can generate specific keys for different operations, allowing to tailor our security system to our needs.
   - **Efficiency** : Instead of storing and managing several independent keys, we can store a single master key and generate the other keys as needed.
+  - **Practicality** : Since we can't decently ask the user to enter a memorable 128-bit password from memory, key derivation overcomes this problem by matching the inserted password to the required security standards.
 
 
-* **Salt** : Imagine you want to preserve a dish with a unique taste. To make it inimitable, you can add a pinch of specific salt to your recipe. This salt, unique to your dish, will make it impossible for anyone else to reproduce exactly the same taste using the same basic ingredients. In cryptography, the “salt” plays a similar role. It's a random string of characters added to a password before it's hashed. This hash, i.e. the transformation of the password into a fixed-length string of characters, is used to store the password securely. Thus, even if the attacker recovers the master key (the password), it will be useless to him if it's not combined with the salt value.
+* **Salt** : Imagine you want to preserve a dish with a unique taste. To make it inimitable, you can add a pinch of specific salt to your recipe. This salt, unique to your dish, will make it impossible for anyone else to reproduce exactly the same taste using the same basic ingredients. In cryptography, the “salt” plays a similar role. It's a random string of characters added to a password before it's hashed. This hash, i.e. the transformation of the password into a fixed-length string of characters, is used to store the password securely.
+
+
+> <span style="color:red"><b>Safety reminder</b></span> : If the password alone isn't enough to decrypt a message, that doesn't mean it shouldn't be kept safe. Although the attacker cannot decrypt the message directly without salt, he can use the password to derive the key, and with the derived key, the attacker can try to guess the salt by brute force. So **even without salt, an attacker in possession of the password has a significant advantage** and can, with relatively modest effort, compromise the confidentiality of encrypted data. So **the password AND the salt must be treated with the same care**.
 
 ## Key and token
 The key and the token are two key concepts used by Fernet to encrypt and decrypt data.
