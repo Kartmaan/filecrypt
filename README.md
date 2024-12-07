@@ -167,6 +167,15 @@ Here, we want to extract the timestamp from an encrypted file named `image.jpg`
 #### Method 2 : By using a file encrypted with a password and a salt
 `python filecrypt.py timestamp image.jpg -p notastrongpsw -s yAccWy42_ngl2wDMO528jg==`
 
+**Output** :
+```
+- - - - - - - - - - - - - - - - - - - -
+image.jpg was encrypted at : 2024-12-01 18:35:59
+Since 2 hours, 9 minutes, 3 seconds
+Timestamp : 1733074559
+- - - - - - - - - - - - - - - - - - - -
+```
+
 # Some technical details
 ## What's Fernet ?
 Fernet (from `cryptography` module) is an implementation of the AES algorithm using a 128-bit key. Fernet offers an abstraction that allows developers to encrypt and decrypt data without having to worry about the complexities of implementing AES and other security mechanisms.
@@ -197,17 +206,15 @@ Fernet (from `cryptography` module) is an implementation of the AES algorithm us
 
 
 * **Password & Salt** : Data can be encrypted using a user-memorable password, which is **derived** to be 128 bits long key. This password is also “mixed” with a sequence of random bits called “**salt**” before being hashed. In this way, knowing or guessing the password is not enough to decrypt the message, knowing the salt value is also necessary.
-  ><p style="text-align: center;"><b>Key derivation</b></p> 
-  >Key derivation is the principle of using a single secret key (<i>often called the master key, represented here by our password</i>) to generate several different keys of any desired length (<i>using an algorithm, PBKDF2 in our case</i>). To create these new keys, we generally use cryptographic hash functions. These functions take as input the master key (<i>our password</i>) and other information, such as the salt, to produce as output a unique and difficult-to-invert value, which will be our new key. This method has several advantages: <br><br>
 
-  >- <b>Security</b> : By having several derived keys, we limit the risks if one key is compromised. If an attacker discovers one of the derived keys, he won't have access to the master key and therefore to the other keys.<br><br>
 
-  >- <b>Flexibility</b> : We can generate specific keys for different operations, allowing to tailor our security system to our needs.<br><br>
+* **Key derivation** : principle of using a single secret key (<i>often called the master key, represented here by our password</i>) to generate several different keys of any desired length (<i>using an algorithm, PBKDF2 in our case</i>). To create these new keys, we generally use cryptographic hash functions. These functions take as input the master key (<i>our password</i>) and other information, such as the salt, to produce as output a unique and difficult-to-invert value, which will be our new key. This method has several advantages:
+  - **Security** : By having several derived keys, we limit the risks if one key is compromised. If an attacker discovers one of the derived keys, he won't have access to the master key and therefore to the other keys
+  - **Flexibility** : We can generate specific keys for different operations, allowing to tailor our security system to our needs.
+  - **Efficiency** : Instead of storing and managing several independent keys, we can store a single master key and generate the other keys as needed.
 
-  >- <b>Efficiency</b> : Instead of storing and managing several independent keys, we can store a single master key and generate the other keys as needed.<br><br>
 
-  ><p style="text-align: center;"><b>Salt</b></p>
-  >Imagine you want to preserve a dish with a unique taste. To make it inimitable, you can add a pinch of specific salt to your recipe. This salt, unique to your dish, will make it impossible for anyone else to reproduce exactly the same taste using the same basic ingredients. In cryptography, the “salt” plays a similar role. It's a random string of characters added to a password before it's hashed. This hash, i.e. the transformation of the password into a fixed-length string of characters, is used to store the password securely. Thus, even if the attacker recovers the master key (the password), it will be useless to him if it's not combined with the salt value.
+* **Salt** : Imagine you want to preserve a dish with a unique taste. To make it inimitable, you can add a pinch of specific salt to your recipe. This salt, unique to your dish, will make it impossible for anyone else to reproduce exactly the same taste using the same basic ingredients. In cryptography, the “salt” plays a similar role. It's a random string of characters added to a password before it's hashed. This hash, i.e. the transformation of the password into a fixed-length string of characters, is used to store the password securely. Thus, even if the attacker recovers the master key (the password), it will be useless to him if it's not combined with the salt value.
 
 ## Key and token
 The key and the token are two key concepts used by Fernet to encrypt and decrypt data.
