@@ -16,7 +16,7 @@ https://github.com/Kartmaan/filecrypt
 
 Author : Kartmaan
 Date : 2024-12-05
-Version : 1.0.1
+Version : 1.0.2
 """
 
 import argparse
@@ -25,8 +25,10 @@ from datetime import datetime as dt
 from dateutil.relativedelta import relativedelta
 from os import remove, urandom
 from os.path import exists
+import secrets
 from shutil import copyfile
-from string import ascii_letters, digits
+from string import ascii_letters, ascii_lowercase
+from string import ascii_uppercase, digits, punctuation
 import subprocess
 import sys
 from typing import Union
@@ -446,6 +448,88 @@ def get_timestamp(encrypted_file: str,
     except Exception as e:
         print(e)
 
+def salt_gen():
+    """Generates a random salt value and print it
+
+    Returns:
+        str: The b64-urlsafe salt value
+    """    
+    salt = urandom(16) # 16 random bytes (128 bits)
+    salt_b64 = base64.urlsafe_b64encode(salt).decode('ascii')
+
+    print(salt_b64)
+
+def psw_gen(length=17, include_uppercase=True, 
+            include_lowercase=True, include_digits=True, 
+            include_symbols=False):
+    """Generates and a strong random password and print it.
+
+    The function uses the 'secrets' module to randomly 
+    select characters from an iterable (alphabet) in a 
+    cryptographically secure way, using system entropy.
+
+    Note : by default, symbol inclusion is disabled, as 
+    this could generate syntax conflicts in the terminal.
+    To compensate for this, the password length is set to 
+    17 by default, in order to keep the entropy above 
+    100 bits.
+
+    Args:
+        length (int, optional): Password length. Defaults 
+        to 17.
+
+        include_uppercase (bool, optional): Inclusion of 
+        capital letters. Defaults to True.
+
+        include_lowercase (bool, optional): Inclusion of 
+        lowercase letters. Defaults to True.
+        
+        include_digits (bool, optional): Inclusion of 
+        digits. Defaults to True.
+
+        include_symbols (bool, optional): Inclusion of 
+        symbols. Defaults to False to avoid syntax conflicts.
+
+    Raises:
+        ValueError: Wrong format
+    """
+
+    if length < 12:
+        raise ValueError("Password length must be at least 12 characters.")
+
+    alphabet = ""
+    if include_uppercase:
+        alphabet += ascii_uppercase
+    if include_lowercase:
+        alphabet += ascii_lowercase
+    if include_digits:
+        alphabet += digits
+    if include_symbols:
+        alphabet += punctuation
+
+    # All booleans to False
+    if not alphabet:
+        raise ValueError("At least one character type must be included.")
+
+    # Loop in which the secrets.choice() method chooses 
+    # the desired number of random characters from the 
+    # available characters in 'alphabet'
+    while True:
+        password = ''.join(secrets.choice(alphabet) for i in range(length))
+        # Additional check to ensure that all character 
+        # types are present if requested. If not, another 
+        # generation is tempted
+        if (include_uppercase and not any(c.isupper() for c in password)) or \
+            (include_lowercase and not any(c.islower() for c in password)) or \
+            (include_digits and not any(c.isdigit() for c in password)) or \
+            (include_symbols and not any(c in punctuation for c in password)):
+            continue
+        # All character types are present
+        else:
+            break
+
+    print(password)
+
 def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
     """Creates a Fernet object with a given password and 
     a salt value.
@@ -808,6 +892,18 @@ def main() -> None:
         help="Install dependencies using pip"
     )
 
+    # - - - - - - Command : salt
+    parser_salt = subparsers.add_parser(
+        "salt",
+        help="Generates a random salt value"
+    )
+
+    # - - - - - - Command : psw
+    parser_psw = subparsers.add_parser(
+        "psw",
+        help="Generates a strong random password"
+    )
+
     # - - - - - - Command : read
     parser_read = subparsers.add_parser(
         "read",
@@ -897,6 +993,12 @@ def main() -> None:
 
     if args.command == "install":
         install_from_requirements()
+    
+    elif args.command == "salt":
+        salt_gen()
+    
+    elif args.command == "psw":
+        psw_gen()
 
     elif args.command == "read":
         read_filekey(args.filekey)
