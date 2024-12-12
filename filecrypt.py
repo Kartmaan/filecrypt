@@ -16,7 +16,7 @@ https://github.com/Kartmaan/filecrypt
 
 Author : Kartmaan
 Date : 2024-12-05
-Version : 1.0.2
+Version : 1.0.3
 """
 
 import argparse
@@ -33,40 +33,63 @@ import subprocess
 import sys
 from typing import Union
 
-from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
+REQUIREMENTS = ["cryptography", "pyperclip"]
 FILEKEY_EXT = ".key"
 
-def install_from_requirements(requirements_file="requirements.txt"):
+def install_from_requirements():
     """
-    Installs modules listed in a txt file.
-
-    Args:
-        requirements_file (str): The path to
-        the file. Default to 'requirements.txt'. (optional)
+    Installs modules listed in the 'REQUIREMENTS' list with pip.
     """
-    try:
-        # Opens the file in read mode
-        with open(requirements_file, 'r') as f:
-            for line in f:
-                # Removes spaces and comments
-                package = line.strip()
-                if package and not package.startswith('#'):
-                    try:
-                        # Tries to install the package with pip
-                        print(f"Checking and installing the package : {package}")
-                        subprocess.check_call([sys.executable, "-m",
-                            "pip", "install", package])
-                        print(f"{package} has been successfully installed.")
-                    except subprocess.CalledProcessError:
-                        print(f"Error: Unable to install {package}.")
+    for package in REQUIREMENTS:
+        try:
+            # Tries to install the package with pip
+            print(f"Checking and installing the package : {package}")
+            subprocess.check_call([sys.executable, "-m",
+                "pip", "install", package])
+            print(f"{package} has been successfully installed.")
 
-    except FileNotFoundError:
-        print(f"{requirements_file} not found.")
-    except Exception as e:
-        print(f"An unexpected error has occurred : {e}")
+        except subprocess.CalledProcessError:
+            print(f"Error: Unable to install {package}. Check your connection.")
+            raise
+
+        except Exception as e:
+            print(f"An unexpected error has occurred : {e}")
+            raise
+
+# As these modules are not built-in, we insert them in a 
+# try...except block to suggest that the user install 
+# them if they are not present in his environment.
+try :
+    from cryptography.fernet import Fernet, InvalidToken
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    import pyperclip
+except ImportError:
+    choice = None
+
+    while choice != "y" and choice != "n":
+        print("One of the following modules isn't installed "
+        f"in your environment: {REQUIREMENTS}.")
+
+        choice = input("Do you want to install them ? (y/n): ")
+        choice = choice.lower()
+
+        if choice == "y":
+            install_from_requirements()
+            sys.exit(0)
+        elif choice == "n":
+            print("Exiting. Please install the missing " 
+            "modules manually.")
+            sys.exit(1)
+        else:
+            print("Invalid input")
+            continue
+
+def clean():
+    """Deletes confidential data on the clipboard
+    """
+    pyperclip.copy("")
+    print("The clipboard has been erased")
 
 def valid_b64_urlsafe(b64_code: Union[str, bytes]) -> bool:
     """Checks if the entry is a valid base64 urlsafe code.
@@ -78,7 +101,7 @@ def valid_b64_urlsafe(b64_code: Union[str, bytes]) -> bool:
         b64_code (Union[str, bytes]): Entry to check
 
     Returns:
-        bool: Valid base64 urlsafe or not
+        bool: Valid base64 urlsafe (True) or not (False)
     """
     try:
         base64.urlsafe_b64decode(b64_code)
@@ -94,7 +117,7 @@ def valid_filename(file_name: str) -> bool:
         file_name (str): Name of the file to be checked
 
     Returns:
-        bool: Valid or not
+        bool: Valid file name (True) or not (False)
     """
 
     # Whitelist composed of letters, numbers and the
@@ -128,7 +151,7 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     """Checks the validity of a filekey name.
 
     The definition of a valid filekey name depends on
-    whether the file key is supposed to be present in the
+    whether the filekey is supposed to be present in the
     current folder or created by the user.
 
     Args:
@@ -139,7 +162,7 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
         Default to False. (optional)
 
     Returns:
-        bool: Valid filekey name or not
+        bool: Valid filekey name (True) or not (False)
     """
     if not isinstance(filekey, str):
         print(f"Wrong type, must be a str ({type(filekey)}"
@@ -171,15 +194,14 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
 
     return True
 
-def valid_filekey_key(filekey: str) -> Union[bool, None]:
+def valid_filekey_key(filekey: str) -> bool:
     """Checks whether the key present in a filekey is valid.
 
     Args:
         filekey (str): Given filekey
 
     Returns:
-        Union[bool, None]: Returns True/False if
-        verification was successful. None otherwise.
+        bool: Valid key (True) or not (False).
     """
     with open(filekey, "r") as f:
         content = f.read()
@@ -197,7 +219,7 @@ def valid_filekey(filekey: str) -> bool:
         filekey (str): Filekey name (with extension)
 
     Returns:
-        bool: Valid or not
+        bool: Valid (True) or not (False)
     """    
     if valid_filekey_name(filekey) and valid_filekey_key(filekey):
         return True
@@ -217,7 +239,7 @@ def valid_password(psw: str) -> bool:
     blacklist = [' ']
 
     if not isinstance(psw, str):
-        print("psw must be a str type")
+        print(f"psw must be a str type, {type(psw)} given.")
         return False
 
     if len(psw) < MIN_LENGTH:
@@ -239,7 +261,7 @@ def valid_salt(salt: str) -> bool:
         salt (str): The given salt value
 
     Returns:
-        bool: Valid or not
+        bool: Valid salt (True) or not (False)
     """
     if len(salt) == 0:
         print("No salt value inserted")
@@ -255,7 +277,7 @@ def valid_salt(salt: str) -> bool:
         print("Invalid salt, must be a b64")
         return False
 
-def read_filekey(filekey: str, return_value: bool = False) -> Union[str, None]:
+def read_filekey(filekey: str, return_value: bool = False) -> str:
     """Displays or returns the Base64 key of a filekey.
 
     Args:
@@ -265,9 +287,11 @@ def read_filekey(filekey: str, return_value: bool = False) -> Union[str, None]:
         variable is returned, otherwise it's simply
         displayed. Default to False. (optional)
     
+    Error:
+        Invalid filekey : sys.exit(1)    
+    
     Return:
         str : The b64 key
-        None : If an error has occurred
     """
 
     if valid_filekey(filekey):
@@ -278,9 +302,9 @@ def read_filekey(filekey: str, return_value: bool = False) -> Union[str, None]:
                 else:
                     return content
     else:
-        return None
+        sys.exit(1)
 
-def create_filekey(file_name: str, key: str) -> None:
+def create_filekey(file_name: str, key: str):
     """Creates a filekey based on a base64 key.
 
     If the key is valid, this filekey can be used to 
@@ -292,15 +316,17 @@ def create_filekey(file_name: str, key: str) -> None:
 
         key (str): Secret key (base64 urlsafe)
     
-    Return:
-        None : If an error has occurred
+    Error:
+        Invalid file name: sys.exit(1)
+        Invalid filekey name: sys.exit(1)
+        Invalid key: sys.exit(1)
     """
 
     if not valid_filename(file_name):
-        return None
+        sys.exit(1)
 
     if not valid_filekey_name(file_name, create = True):
-        return None
+        sys.exit(1)
 
     # No spaces
     key = key.replace(' ', '')
@@ -312,9 +338,9 @@ def create_filekey(file_name: str, key: str) -> None:
         print(f"{file_name + FILEKEY_EXT} has been created in the current folder")
     else:
         print("Invalid key, must be base64 urlsafe")
-        return None
+        sys.exit(1)
 
-def since_when(token_timestamp: int) -> Union[str, None]:
+def since_when(token_timestamp: int) -> str:
     """Returns the elapsed time between an inserted 
     timestamp and the current one. The function returns 
     the elapsed time by units of time in a readable form.
@@ -326,14 +352,20 @@ def since_when(token_timestamp: int) -> Union[str, None]:
 
     Args:
         token_timestamp (int): The given timestamp
+    
+    Error:
+        Invalid timestamp : ValueError
 
     Returns:
         str: Text of the elapsed time.
-        None: Error.
     """
 
-    # Invalid timestamp
-    if not isinstance(token_timestamp, int) or token_timestamp <= 0:
+    # Invalid timestamp - Not an int
+    if not isinstance(token_timestamp, int):
+        raise ValueError("Error: invalid timestamp, must be a positive integer")
+    
+    # Invalid timestamp - Not a positive int
+    if isinstance(token_timestamp, int) and token_timestamp <= 0:
         raise ValueError("Error: invalid timestamp, must be a positive integer")
     
     now = dt.now()
@@ -379,7 +411,7 @@ def get_timestamp(encrypted_file: str,
                   filekey: Union[str, None] = None,
                   psw: Union[str, None] = None, 
                   salt: Union[str, None] = None) -> None:
-    """Returning the timestamp of a Fernet token. 
+    """Prints the timestamp of a Fernet token. 
     Depending on the method used to encrypt the file: 
     with a filekey or with a password.
 
@@ -402,17 +434,25 @@ def get_timestamp(encrypted_file: str,
         with the password to encrypt the file. 
         Defaults to None.
     
+    Error:
+        File not found: sys.exit(1)
+        Invalid filekey: sys.exit(1)
+        Invalid psw: sys.exit(1)
+        Invalid salt: sys.exit(1)
+        Invalid command combinaison: sys.exit(1)
+        Unexpected error: raise Exception
+    
     Return:
         int : The Unix timestamp of the token
     """
     if not exists(encrypted_file):
         print(f"{encrypted_file} not found")
-        return None
+        sys.exit(1)
     
     # From a file crypted with a filekey
     if filekey != None and (psw == None and salt == None):
         if not valid_filekey(filekey):
-            return None
+            sys.exit(1)
 
         with open(filekey, 'rb') as key_file:
             key = key_file.read()
@@ -424,14 +464,14 @@ def get_timestamp(encrypted_file: str,
         if valid_password(psw) and valid_salt(salt):
             f = psw_derivation(psw, salt)
         else:
-            return None
+            sys.exit(1)
     
     # ERROR
     else:
         print("Wrong args combinaison, must be :")
         print("encryted_file + filekey OR "
               "encypted_file + psw + salt")
-        return None
+        sys.exit(1)
 
     with open(encrypted_file, 'rb') as encrypted_data:
         token = encrypted_data.read()
@@ -447,6 +487,7 @@ def get_timestamp(encrypted_file: str,
         print("- - - - - - - - - - - - - - - - - - - -")
     except Exception as e:
         print(e)
+        raise
 
 def salt_gen():
     """Generates a random salt value and print it
@@ -491,7 +532,7 @@ def psw_gen(length=17, include_uppercase=True,
         symbols. Defaults to False to avoid syntax conflicts.
 
     Raises:
-        ValueError: Wrong format
+        No char type: ValueError
     """
 
     if length < 12:
@@ -607,10 +648,184 @@ def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
 
     return f
 
-def encrypt(filename: str, overwrite:bool = True, 
+def get_confidential_input(prompt: str) -> str:
+    """Retrieves and returns a confidential entry by 
+    replacing each inserted character with an asterisk on 
+    the terminal display.
+
+    Args:
+        prompt (str): 
+
+    Raises:
+        Invalid char: KeyboardInterrupt
+
+    Returns:
+        str: Plain text input inserted by the user
+    """    
+    secret_input = ""
+    substitution_char = '*'
+
+    sys.stdout.write(prompt) # Writing to std output
+    sys.stdout.flush() # Instant display
+    
+    # OS detection
+    # Replacing user input with asterisks means bypassing the 
+    # standard echo of characters entered from the keyboard. 
+    # To achieve this, we need to use operating system-specific
+    # functions for low-level management of terminal 
+    # input/output, so as to be able to display asterisks 
+    # instead of real characters. We are therefore planning 
+    # two separate procedures: one for Windows and another 
+    # for Linux.
+    if sys.platform == "win32":  # Windows
+        import msvcrt
+        while True:
+            # reads a single character from the keyboard 
+            # without echo (without displaying it in the 
+            # terminal). The character is returned in bytes.
+            char = msvcrt.getch()
+
+            # The enter key is pressed
+            if char in {b"\r", b"\n"}:  # Enter key
+                break
+            
+            # The backspace key is pressed. The last char 
+            # is deleted
+            elif char == b"\x08":
+                if len(secret_input) > 0:
+                    secret_input = secret_input[:-1]
+                    # We replace the last character 
+                    # displayed with a space, then go back 
+                    # again (\b) to visually delete the 
+                    # character.
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+            
+            # Directional key prefixes on Windows.
+            # We make sure that the cursor cannot move 
+            # other than by using the backspace key.
+            elif char == b"\xe0":  # 
+                char = msvcrt.getch()  # Lire le code spécifique de la flèche
+                if char == b"H":  # Up
+                    pass
+                elif char == b"P":  # Down
+                    pass
+                elif char == b"K":  # Left
+                    pass
+                elif char == b"M":  # Right
+                    pass
+
+            # Ctrl+C / Ctrl+V
+            elif char == b"\x03" or char == b'\x16':  # 
+                pass
+            
+            # ECHAP
+            elif char == b'\x1b':
+                pass
+            
+            # All other inserted keys are retrieved here, 
+            # since not all of them are printable, we attempt 
+            # to decode the input in utf-8 in order to handle 
+            # any exception appropriately
+            else:
+                try:
+                    secret_input += char.decode("utf-8")
+                except UnicodeDecodeError:
+                    print("Invalid input")
+                    sys.stdout.write(prompt)
+                    sys.stdout.flush()
+                    continue
+
+                sys.stdout.write(substitution_char)
+                sys.stdout.flush()
+
+    else:  # Linux/macOS
+        # termios : controls low-level terminal parameters 
+        # (specific to Unix-like systems)
+        # tty : provides high-level functions to manage 
+        # terminal modes, such as "raw" mode (specific to 
+        # Unix-like systems)
+        import termios
+        import tty
+
+        # Retrieves the file descriptor (an integer uniquely 
+        # identifying an open file or a data floxw) associated 
+        # with standard input (sys.stdin)
+        fd = sys.stdin.fileno()
+
+        # Retrieves the terminal's current settings 
+        # (associated with the fd file descriptor) and stores 
+        # them in the old_settings variable. These settings 
+        # will be restored later to restore normal terminal 
+        # behavior.
+        old_settings = termios.tcgetattr(fd)
+
+        # We create a try...finally block to guarantee that 
+        # the terminal parameters will be restored to their 
+        # initial state, even if an error occurs during 
+        # password entry.
+        try:
+            # Configure terminal in raw mode, disabling echo 
+            # of characters entered and management of special 
+            # keys.
+            tty.setraw(fd)  # Set raw mode (no echo)
+            while True:
+                # Reading a character from std input
+                char = sys.stdin.read(1)
+
+                # Enter key pressed
+                if char in {"\r", "\n"}:
+                    break
+
+                # Backspace key pressed. The last char is 
+                # deleted.
+                elif char == "\x7f":
+                    if len(secret_input) > 0:
+                        secret_input = secret_input[:-1]
+                        sys.stdout.write("\b \b")  # Remove asterisk
+                        sys.stdout.flush()
+                
+                # Directionnal keys pressed
+                elif char == "\x1b":
+                    next1, next2 = sys.stdin.read(1), sys.stdin.read(1)
+                    if next1 == "[":
+                        if next2 == "A":  # Up
+                            pass
+                        elif next2 == "B":  # Down
+                            pass
+                        elif next2 == "C":  # Right
+                            pass
+                        elif next2 == "D":  # Left
+                            pass
+
+                # Ctrl+C
+                elif char == "\x03" or char == "\x16":
+                    pass
+
+                # All other keyboard inputs
+                else:
+                    # The inserted character is added
+                    secret_input += char
+
+                    # Displays the substitution character on 
+                    # the standard output
+                    sys.stdout.write(substitution_char)
+                    sys.stdout.flush()
+        finally:
+            # Restores initial terminal settings (those stored 
+            # in old_settings) using file descriptor fd. 
+            # termios.TCSADRAIN indicates that changes should 
+            # be applied after all pending output has been 
+            # written.
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # Restore initial params
+
+    sys.stdout.write("\n")  # Go to next line
+    return secret_input
+
+def encrypt(filename: str, overwrite: bool = True, 
             given_filekey: Union[str, None] = None, 
             psw: Union[str, None] = None, 
-            salt: Union[str, None] = None) -> None:
+            salt: Union[str, None] = None):
     """Encrypts a file in 3 different ways :
 
     1. By generating a random filekey in the current 
@@ -637,8 +852,12 @@ def encrypt(filename: str, overwrite:bool = True,
         salt (str | None): Custom salt given to encrypt
         the file. Defaults to None.
 
-    Returns:
-        None: If an error has been encountered
+    Error:
+        File not found: sys.exit(1)
+        Invalid filekey: sys.exit(1)
+        Invalid password: sys.exit(1)
+        Invalid salt: sys.exit(1)
+        Unexpected error: sys.exit(1)
     """
     print(f"---- Encryption of {filename} ----")
 
@@ -675,7 +894,7 @@ def encrypt(filename: str, overwrite:bool = True,
             if valid_filekey(given_filekey):
                 generated_filekey_name = given_filekey
             else:
-                return None
+                sys.exit(1)
 
         # Filekey reading and retrieved as bytes
         if given_filekey == None:
@@ -688,7 +907,7 @@ def encrypt(filename: str, overwrite:bool = True,
                 key = filekey.read() # key = bytes
         except FileNotFoundError:
             print(f"Error : No such keyfile : {filename} in the current folder")
-            return None
+            sys.exit(1)
 
         # Fernet object creation with the generated key
         f = Fernet(key)
@@ -716,7 +935,7 @@ def encrypt(filename: str, overwrite:bool = True,
 
                 if choice == 'n' or choice == 'no':
                     print("Operation cancellation...")
-                    return None
+                    sys.exit(0)
                 
                 elif choice == 'y' or choice == 'yes':
                     pass
@@ -730,7 +949,7 @@ def encrypt(filename: str, overwrite:bool = True,
             if valid_password(psw):
                 f = psw_derivation(psw, salt)
             else:
-                return None
+                sys.exit(1)
         
         # A salt has been inserted, the password and salt 
         # must be verified.
@@ -738,12 +957,12 @@ def encrypt(filename: str, overwrite:bool = True,
             if valid_password(psw) and valid_salt(salt):
                 f = psw_derivation(psw, salt)
             else:
-                return None
+                sys.exit(1)
 
         # Who knows ?
         else:
             print("Unexpected error ('encrypt' with psw)")
-            return None
+            sys.exit(1)
 
     # Copying the file before overwriting it
     if overwrite == False:
@@ -759,7 +978,7 @@ def encrypt(filename: str, overwrite:bool = True,
                   "in the current folder")
             if psw == None:
                 remove(generated_filekey_name)
-            return None
+            sys.exit(1)
         
     # Recovery the file to be encrypted in bytes
     print(f"{filename} reading...")
@@ -771,7 +990,7 @@ def encrypt(filename: str, overwrite:bool = True,
               "current folder")
         if psw == None:
             remove(generated_filekey_name)
-        return None
+        sys.exit(1)
 
     # Bytes data encryption
     print(f"Data encryption...")
@@ -790,7 +1009,7 @@ def encrypt(filename: str, overwrite:bool = True,
 def decrypt(filename: str,
             filekey_name: Union[str, None] = None, 
             psw: Union[str, None] = None, 
-            salt: Union[str, None] = None) -> None:
+            salt: Union[str, None] = None):
     """Decrypts a file in 2 different ways :
 
     1. By using filekey present in the current folder
@@ -811,15 +1030,19 @@ def decrypt(filename: str,
         salt (str | None): Salt value given to decrypt
         the file. Defaults to None.
 
-    Returns:
-        None: If an error has been encountered
+    Error:
+        File not found: sys.exit(1)
+        Invalid filekey: sys.exit(1)
+        Invalid psw: sys.exit(1)
+        Invalid salt: sys.exit(1)
+        Invalid token: sys.exit(1)
     """
     print(f"---- Decryption of {filename} ----")
 
     # No password given : function will be dealing with a filekey
     if psw == None:
         if not valid_filekey(filekey_name):
-            return None
+            sys.exit(1)
 
         # Filekey reading and retrieved as bytes
         print(f"Filekey reading ({filekey_name})...")
@@ -829,7 +1052,7 @@ def decrypt(filename: str,
         except FileNotFoundError:
             print(f"Error : No such filekey : '{filekey_name}'"
             " in the current folder")
-            return None
+            sys.exit(1)
 
         # Fernet object creation with key
         f = Fernet(key)
@@ -839,7 +1062,7 @@ def decrypt(filename: str,
         if valid_password(psw) and valid_salt(salt):
             f = psw_derivation(psw, salt)
         else:
-            return None
+            sys.exit(1)
 
     # Recovery the file to be decrypted (bytes)
     print(f"{filename} reading...")
@@ -848,15 +1071,15 @@ def decrypt(filename: str,
             encrypted = encrypted_file.read() # encrypted = bytes
     except FileNotFoundError:
         print(f"Error : No such file : '{filename}' in the current folder")
-        return None
+        sys.exit(1)
 
     # File data decryption
     print("Decrypting data...")
     try :
         decrypted = f.decrypt(encrypted)
     except InvalidToken:
-        print("Error : Invalid filekey")
-        return None
+        print("Error : Invalid Fernet token")
+        sys.exit(1)
 
     # Overwriting the file with decrypted bytes data
     # File regains its integrity
@@ -866,12 +1089,13 @@ def decrypt(filename: str,
 
     print(f"---- Operation completed successfully ----")
 
-def main() -> None:
+def main():
     """The argparse structure is defined, as are its call
     logics
 
-    Returns:
-        None: Error
+    Error:
+        Invalid command: sys.exit(1)
+        Wrong command combinaison: sys.exit(1)
     """    
     # - - - - - - Argparse structure - - - - - -
     # Main parser
@@ -925,18 +1149,13 @@ def main() -> None:
     )
     parser_timestamp.add_argument(
         "-f", "--filekey",
-        help="Filekey name in the current folder",
+        help="Filekey name used to encrypt the file",
         default= None
     )
     parser_timestamp.add_argument(
         "-p", "--password",
-        help="Password to decrypt the file",
-        default= None
-    )
-    parser_timestamp.add_argument(
-        "-s", "--salt",
-        help="Salt to decrypt the file",
-        default= None
+        help="Password used to encrypt the file",
+        default= None, action= "store_true"
     )
 
     # - - - - - - Command : create
@@ -946,24 +1165,25 @@ def main() -> None:
     )
     parser_create.add_argument(
         "filename",
-        help="Filekey name"
+        help="File name (without its extension)"
     )
-    parser_create.add_argument(
-        "key",
-        help="Key in base64 urlsafe"
+
+    # - - - - - - Command : clean
+    parser_clean = subparsers.add_parser(
+        "clean", help="Cleans the clipboard"
     )
 
     # - - - - - - Command : encrypt
     parser_encrypt = subparsers.add_parser("encrypt",
         help= "Encrypts a file")
     parser_encrypt.add_argument("filename",
-        help= "Path of file to be encrypted")
+        help= "File name to be encrypted (with its extension)")
     parser_encrypt.add_argument("-f", "--filekey",
-        help= "Path of the existing filekey", default=None)
+        help= "Name of the existing filekey (with its extension)", default=None)
     parser_encrypt.add_argument("-p", "--password", default= None,
-        help= "Encrypts with a given password")
+        help= "Encrypts with a given password", action="store_true")
     parser_encrypt.add_argument("-s", "--salt", default= None,
-        help= "Salt")
+        help= "Encrypts with a given salt value", action="store_true")
 
     # The -overwrite and -copy options are mutually
     # exclusive, only one of them can be called.
@@ -972,21 +1192,24 @@ def main() -> None:
     group_encrypt.add_argument("-ow", "--overwrite",
         action="store_true", help= "Overwrites the file")
     group_encrypt.add_argument("-c", "--copy",
-        action="store_true", help= "Copy the plain-text file "
+        action="store_true", help= "Copy the file "
         "before overwriting it in its encrypted version")
 
     # - - - - - - Command : decrypt
     parser_decrypt = subparsers.add_parser("decrypt",
         help= "Decrypts a file")
     parser_decrypt.add_argument("filename",
-        help= "Path to the file to decrypt")
+        help= "File name to decrypt (with its extension)")
     parser_decrypt.add_argument("filekey", nargs="?",
         help= "The filekey containing the secret key for"
-        " decrypting the file")
-    parser_decrypt.add_argument("-p", "--password", default= None,
-        help= "Decrypts with a given password")
+        " decrypting the file (with its extension)."
+        " If decryption is to be done using a password, "
+        "this field does not need to be filled in.")
+    parser_decrypt.add_argument("-p", "--password", 
+        default= None, help= "Decrypts with a given password", 
+        action="store_true")
     parser_decrypt.add_argument("-s", "--salt", default= None,
-        help= "Salt")
+        help= "Decrypts with a given salt value", action="store_true")
 
     # - - - - - - Call logics - - - - - -
     args = parser.parse_args()
@@ -1004,49 +1227,86 @@ def main() -> None:
         read_filekey(args.filekey)
     
     elif args.command == "timestamp":
-        get_timestamp(
+        password = None
+        salt = None
+
+        # Conflict
+        if (args.filekey and args.password):
+            print("ERROR : You must provide either a 'filekey' or a "
+                "'--password'.")
+            sys.exit(1)
+
+        # File encrypted with a filekey
+        if args.filekey:
+            get_timestamp(
             encrypted_file=args.encrypted_file,
-            filekey= args.filekey, psw= args.password,
-            salt= args.salt)
+            filekey= args.filekey, psw= password,
+            salt= salt)
+        
+        # File encrypted with a psw and a salt
+        elif args.password:
+            password = get_confidential_input("Password: ")
+            salt = get_confidential_input("Salt: ")
+
+            get_timestamp(
+            encrypted_file=args.encrypted_file,
+            filekey= args.filekey, psw= password,
+            salt= salt)
+        
+        else:
+            print("Wrong command combinaison")
+            sys.exit(1)
 
     elif args.command == "create":
-        create_filekey(args.filename, args.key)
+        key = get_confidential_input("Key: ")
+        create_filekey(args.filename, key)
+    
+    elif args.command == "clean":
+        clean()
 
     elif args.command == "encrypt":
+        password = None
+        salt = None
+
         if (args.password and args.filekey):
             print("ERROR : You must provide either a 'filekey' or a "
                 "'--password'.")
-            return None
+            sys.exit(1)
 
-        elif args.overwrite and not args.copy:
+        if args.password and not args.salt:
+            password = get_confidential_input("Password: ")
+            salt = None
+        
+        if args.password and args.salt:
+            password = get_confidential_input("Password: ")
+            salt = get_confidential_input("Salt: ")
+
+        if args.overwrite and not args.copy:
             encrypt(args.filename, overwrite=True, 
                     given_filekey=args.filekey, 
-                    psw=args.password, salt=args.salt)
+                    psw=password, salt=salt)
 
-        elif args.copy and not args.overwrite:
+        if args.copy and not args.overwrite:
             encrypt(args.filename, overwrite=False, 
                     given_filekey=args.filekey, 
-                    psw=args.password, salt=args.salt)
-
-        else:
-            print("ERROR")
+                    psw=password, salt=salt)
 
     elif args.command == "decrypt":
+        password = None
+        salt = None
         # Wrong command
         if (args.password is None and args.filekey is None) or (args.password and args.filekey):
             print("ERROR : You must provide either a 'filekey' or a "
                 "'--password'.")
-            return None
+            sys.exit(1)
 
         # File must be decrypted with a password
         elif args.password:
-            # Password derivation with a random salt
-            if args.salt == None:
-                decrypt(args.filename, psw=args.password)
-            # Password derivation with a given salt
-            else:
-                decrypt(args.filename, psw=args.password, 
-                        salt=args.salt)
+            password = get_confidential_input("Password: ")
+            salt = get_confidential_input("Salt: ")
+    
+            decrypt(args.filename, psw=password, 
+                        salt=salt)
 
         # File must be decrypted with a filekey
         else:
@@ -1054,6 +1314,7 @@ def main() -> None:
 
     else:
         print("ERROR : Unknown argument")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
