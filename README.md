@@ -30,6 +30,8 @@
       - [Method 2 : By using a file encrypted with a password and a salt](#method-2--by-using-a-file-encrypted-with-a-password-and-a-salt)
   - ['clean' command](#clean-command)
     - [Example](#example-6)
+  - ['delete' command](#delete-command)
+    - [Example](#example-7)
 - [Some technical details](#some-technical-details)
   - [What's Fernet ?](#whats-fernet-)
   - [What level of security?](#what-level-of-security)
@@ -282,6 +284,42 @@ The command replaces the current clipboard with an empty entry to reduce the ris
 ```
 python filecrypt.py clean
 > The clipboard has been erased
+```
+
+## 'delete' command
+The command is used to securely delete a file from the current folder. To achieve this, before being removed by the `os.remove` method, the file is blindly encrypted several times (without the keys being communicated) with a new random key on each pass.
+
+**Why this choice?**
+
+Secure deletion most often means overwriting the contents of a file several times with random data before deleting it, making recovery much more difficult. This involves different procedures for Linux and Windows. While Linux has a special command for this kind of operation (`shred`), Windows requires the installation of a specific Microsoft utility (`sdelete`). To compensate for this and preserve the script's portability and lightness, the idea was to use the encryption functions already present and tested to make the file unreadable, even for the user, before deleting it.
+
+> **Note 1**: The size of the file to be deleted increases non-linearly with each pass, so setting the number of passes to 3 seems a good compromise, especially for large files.
+
+> **Note 2**: All deletions must be explicitly confirmed by the user, but filekeys are treated in a special way: the user is asked to ensure that he has kept a copy of the key in a safe place.
+
+### Example
+Let's suppose we want to delete the file 'image.jpg' :
+```
+python filecrypt.py delete image.jpg
+> You are about to irreversibly delete the file image.jpg
+> File size: 39.64 ko
+> Do you confirm this operation? (y/n): y #user input
+> Pass 1/3 completed.
+> Pass 2/3 completed.
+> Pass 3/3 completed.
+> File 'image.jpg' encrypted 3 times
+> File 'image.jpg' deleted.
+```
+Let's now suppose we want to delete the filekey 'filekey.key' :
+```
+python filecrypt.py delete filekey.key
+> You are about to irreversibly delete the filekey filekey.key, if it's still useful for decrypting a file, please note its key in a safe place before deleting it (by using 'read' command).
+> Do you confirm this operation? (y/n): y #user input
+> Pass 1/3 completed.
+> Pass 2/3 completed.
+> Pass 3/3 completed.
+> File 'filekey.key' encrypted 3 times
+> File 'filekey.key' deleted.
 ```
 
 # Some technical details

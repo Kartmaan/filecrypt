@@ -11,12 +11,15 @@ desired command.
 
 Example : 'python filecrypt.py encrypt image.jpg -ow'
 
-All information on available commands :
+All information and examples on :
 https://github.com/Kartmaan/filecrypt
 
+Or :
+'python filecrypt.py --help'
+
 Author : Kartmaan
-Date : 2024-12-05
-Version : 1.0.3
+Date : 2024-12-14
+Version : 1.0.4
 """
 
 import argparse
@@ -24,7 +27,7 @@ import base64
 from datetime import datetime as dt
 from dateutil.relativedelta import relativedelta
 from os import remove, urandom
-from os.path import exists
+from os.path import abspath, basename, exists, getsize
 import secrets
 from shutil import copyfile
 from string import ascii_letters, ascii_lowercase
@@ -33,6 +36,8 @@ import subprocess
 import sys
 from typing import Union
 
+SCRIPT_PATH = abspath(sys.argv[0])
+SCRIPT_NAME = basename(SCRIPT_PATH)
 REQUIREMENTS = ["cryptography", "pyperclip"]
 FILEKEY_EXT = ".key"
 
@@ -339,6 +344,119 @@ def create_filekey(file_name: str, key: str):
     else:
         print("Invalid key, must be base64 urlsafe")
         sys.exit(1)
+
+def secure_delete(filename: str, num_passes: int = 3):
+    """
+    Securely deletes a file from the current folder.
+
+    The file is blindly encrypted several times (without 
+    the key being communicated) with a new random key for 
+    each pass. 
+
+    Note: Given that the file size increases non-linearly 
+    with each pass, setting the number of passes to 3 seems 
+    to be a good compromise, especially for large files. 
+
+    Args:
+        filename (str): The file name to delete.
+        num_passes (int): The number of encryption passes.
+        Default to 3.
+    
+    Error:
+        filename arg not a str: sys.exit(1)
+        File not found: sys.exit(1)
+        Script as filename arg: sys.exit(1)
+        Error during encryption pass : raise Exception
+    """
+    is_filekey = False
+
+    if not isinstance(filename, str):
+        print("filename must be a str")
+        sys.exit(1)
+
+    elif not exists(filename):
+        print(f"{filename} not found.")
+        sys.exit(1)
+    
+    # Prevents script from killing itself 
+    elif filename == SCRIPT_PATH or filename == SCRIPT_NAME:
+        print("The script cannot delete itself")
+        sys.exit(1)
+    
+    # The file to be deleted is a filekey
+    elif filename.endswith(FILEKEY_EXT):
+        is_filekey = True
+    
+    else:
+        pass
+    
+    # Get original file size
+    original_file_size = getsize(filename)
+
+    # User confirmation
+    choice = None
+    while choice != "y" and choice != "n":
+        if is_filekey:
+            print("You are about to irreversibly delete the " 
+                  f"filekey {filename}, if it's still "
+                  "useful for decrypting a file, please "
+                  "note its key in a safe place before "
+                  "deleting it ('read' command).")
+        else:
+            print("You are about to irreversibly delete " 
+                  f"the file {filename}")
+            print(f"File size: {round(original_file_size/1024, 2)} ko")
+
+        choice = input("Do you confirm this operation? (y/n): ")
+        choice = choice.lower()
+
+        if choice == "y":
+            pass
+        elif choice == "n":
+            print("Exiting...")
+            sys.exit(0)
+        else:
+            print("Invalid input")
+            continue
+
+    # Encryption passes
+    for i in range(num_passes):
+        # Generate a random key
+        key = Fernet.generate_key()
+
+        # Generate a random salt 
+        salt = urandom(16)
+
+        # Derive the key using PBKDF2HMAC
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=480000,
+        )
+        derived_key = kdf.derive(key)
+        encoded_key = base64.urlsafe_b64encode(derived_key)
+
+        f = Fernet(encoded_key)
+
+        try:
+            with open(filename, "rb") as file:
+                original_data = file.read()
+
+            encrypted_data = f.encrypt(original_data)
+
+            with open(filename, "wb") as file:
+                file.write(encrypted_data)
+
+            print(f"Pass {i + 1}/{num_passes} completed.")
+
+        except Exception as e:
+            print(f"Error during encryption pass {i + 1}: {e}")
+            raise
+    
+    print(f"File '{filename}' encrypted {num_passes} times")
+    remove(filename)  # Delete the file after encryption
+    print(f"File '{filename}' deleted.")
 
 def since_when(token_timestamp: int) -> str:
     """Returns the elapsed time between an inserted 
@@ -1168,6 +1286,16 @@ def main():
         help="File name (without its extension)"
     )
 
+    # - - - - - - Command : delete
+    parser_delete = subparsers.add_parser(
+        "delete",
+        help="Securely deletes a file from the current folder"
+    )
+    parser_delete.add_argument(
+        "filename",
+        help="The file name to delete"
+    )
+
     # - - - - - - Command : clean
     parser_clean = subparsers.add_parser(
         "clean", help="Cleans the clipboard"
@@ -1260,6 +1388,9 @@ def main():
     elif args.command == "create":
         key = get_confidential_input("Key: ")
         create_filekey(args.filename, key)
+    
+    elif args.command == "delete":
+        secure_delete(args.filename)
     
     elif args.command == "clean":
         clean()
