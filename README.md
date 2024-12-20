@@ -31,6 +31,12 @@
   - ['clean' command](#clean-command)
     - [Example](#example-6)
   - ['delete' command](#delete-command)
+    - ['shuffle' option](#shuffle-option)
+    - [Examples](#examples-2)
+  - ['zip' command](#zip-command)
+    - ['delete' option](#delete-option)
+    - [Examples](#examples-3)
+  - ['unzip' command](#unzip-command)
     - [Example](#example-7)
 - [Some technical details](#some-technical-details)
   - [What's Fernet ?](#whats-fernet-)
@@ -38,9 +44,12 @@
   - [Key and token](#key-and-token)
     - [Key](#key)
     - [Token](#token)
+  - [Script SAFE\_MODE](#script-safe_mode)
 
 # Filecrypt
 This Python script encrypts/decrypts files located in the script's current folder. The program is based on **Fernet**, an implementation of the AES-128 algorithm.
+
+> For security reasons, the script can only be placed in a non-sensitive area of the system, and can only access its current folder. If the script is placed in a sensitive area, SAFE_MODE is activated, preventing the call of any file-modifying function (see 'Some technical details' section for more information).
 
 ## Compatibility
 The script has been tested on **Windows** and **Linux**
@@ -287,39 +296,105 @@ python filecrypt.py clean
 ```
 
 ## 'delete' command
-The command is used to securely delete a file from the current folder. To achieve this, before being removed by the `os.remove` method, the file is blindly encrypted several times (without the keys being communicated) with a new random key on each pass.
+The command is used to **securely delete** a file from the current folder. To achieve this, before being removed by the `os.remove` method, the file is blindly encrypted several times (*without the keys being communicated*) with a new random key on each pass. After this, the file is truncated to its original size.
 
-**Why this choice?**
+> **Secure deletion**: Secure deletion most often means overwriting the contents of a file several times with random data before deleting it, making recovery much more difficult. This involves different procedures for Linux and Windows. While Linux has a special command for this kind of operation (`shred`), Windows requires the installation of a specific Microsoft utility (`sdelete`). To compensate for this and preserve the script's portability and lightness, the command uses the encryption functions already present in the script to make the file unreadable before deletion, even for the user.
 
-Secure deletion most often means overwriting the contents of a file several times with random data before deleting it, making recovery much more difficult. This involves different procedures for Linux and Windows. While Linux has a special command for this kind of operation (`shred`), Windows requires the installation of a specific Microsoft utility (`sdelete`). To compensate for this and preserve the script's portability and lightness, the idea was to use the encryption functions already present and tested to make the file unreadable, even for the user, before deleting it.
+> **Note**: All deletions must be explicitly confirmed by the user, but filekeys are treated in a special way: the user is asked to ensure that he has kept a copy of the key in a safe place.
 
-> **Note 1**: The size of the file to be deleted increases non-linearly with each pass, so setting the number of passes to 3 seems a good compromise, especially for large files.
+> **Encryption passes**: The file size will temporarily increase with each encryption pass. Even if the file returns to its initial size after the truncation phase, setting the number of passes to 2 seems a more than acceptable compromise, particularly for large files.
 
-> **Note 2**: All deletions must be explicitly confirmed by the user, but filekeys are treated in a special way: the user is asked to ensure that he has kept a copy of the key in a safe place.
+### 'shuffle' option
+Optionally, file bytes can also be shuffled just before the deletion by activating the `-s` / `--shuffle` option.
 
-### Example
-Let's suppose we want to delete the file 'image.jpg' :
+> **Note**: The operation can be long for large files (approx. 2 min on a standard PC for a 100MB file).
+
+### Examples
+Let's suppose we want to delete the file 'image.jpg' in the current folder :
 ```
 python filecrypt.py delete image.jpg
-> You are about to irreversibly delete the file image.jpg
+> You are about to irreversibly delete the file 'image.jpg'
 > File size: 39.64 ko
-> Do you confirm this operation? (y/n): y #user input
-> Pass 1/3 completed.
-> Pass 2/3 completed.
-> Pass 3/3 completed.
-> File 'image.jpg' encrypted 3 times
-> File 'image.jpg' deleted.
+> From: C:\Users\Bob\Code\image.jpg
+> Do you confirm this operation? (y/n): y # user input
+> Encryption...
+> Pass 1/2 completed.
+> Pass 2/2 completed.
+> Resizing...
+> 'brain.jpg' has been deleted.
 ```
-Let's now suppose we want to delete the filekey 'filekey.key' :
+Same example with the `-s` \ `--shuffle` option:
 ```
-python filecrypt.py delete filekey.key
-> You are about to irreversibly delete the filekey filekey.key, if it's still useful for decrypting a file, please note its key in a safe place before deleting it (by using 'read' command).
-> Do you confirm this operation? (y/n): y #user input
-> Pass 1/3 completed.
-> Pass 2/3 completed.
-> Pass 3/3 completed.
-> File 'filekey.key' encrypted 3 times
-> File 'filekey.key' deleted.
+python filecrypt.py delete image.jpg -s
+> You are about to irreversibly delete the file 'image.jpg'
+> File size: 39.64 ko
+> From: C:\Users\Bob\Code\image.jpg
+> Do you confirm this operation? (y/n): y # user input
+> > Encryption...
+> Pass 1/2 completed.
+> Pass 2/2 completed.
+> Resizing...
+> Shuffling...
+> 'filekey.key' has been deleted.
+```
+
+## 'zip' command
+The command is used to compress files or folders in the current folder into `.zip` format. The command may be useful if the user wants to encrypt an entire folder.
+
+### 'delete' option
+The `-d` / `--delete` option securely deletes the original file/folder after compression, after user confirmation.
+
+### Examples
+Let's suppose we want to zip the file 'image.jpg'.
+```
+python filecrypt.py zip image.jpg
+> Zipping...
+> Added : image.jpg
+> 'brain.jpg' compressed successfully.
+```
+A zip archive named 'image.zip' is created in the current folder. Since the `--delete` option isn't enabled, the original file remains in the current folder.
+
+Now let's suppose we want to compress a folder called 'secret' with this tree structure.
+
+```
+secret/
+├─ fold1/
+│  ├─ psw.txt
+│  ├─ salt.txt
+├─ fold2/
+│  ├─ ciphertext.txt
+│  ├─ key.txt
+
+```
+We also want this folder to be securely deleted after compression, so we activate the `-d` / `--delete` option :
+
+```
+python filecrypt.py zip secret -d
+> Compression will delete the 'secret' folder.
+> From: C:\Users\Bob\Code\secret
+> Do you confirm the operation ? (y/n): y # User input
+> Zipping...
+> Added: secret\fold1\psw.txt
+> Added: secret\fold1\salt.txt
+> Added: secret\fold2\ciphertext.txt
+> Added: secret\fold2\key.txt
+> Deleting files...
+> File deletion 1/4
+> File deletion 2/4
+> File deletion 3/4
+> File deletion 4/4
+> 'secret' compressed successfully. 
+```
+
+## 'unzip' command
+The command unzips zip archives in the current folder.
+
+### Example
+Unzipping the 'secret.zip' archive :
+```
+python filecrypt.py unzip secret.zip
+> Unzipping secret.zip...
+> secret.zip extracted successfully.
 ```
 
 # Some technical details
@@ -393,3 +468,24 @@ A data container encapsulating everything needed to decrypt the data or verify i
   * **Ciphertext, variable length, (multiple of 128 bits)** : has variable size, but is always a multiple of 128 bits, the AES block size. It contains the original input message, padded and encrypted.
 
   * **HMAC, (256 bits)** : (**H**ash-based **M**essage **A**uthentication **C**ode) used to authenticate the token, i.e. the header (*version and timestamp*), the ciphertext and the IV. This authentication key is calculated using the signing-key as the secret key. Thus, HMAC ensures not only integrity, but also authenticity.
+
+## Script SAFE_MODE
+The script is able to modify or even deleting files/folders, so its use is controlled to reduce the risk of inadvertent manipulation. To do this, the script checks whether its location corresponds to a **sensitive area of the system**. If this is the case, SAFE_MODE mode is activated, preventing the call of file/folder modifying functions. In addition, the script can only access files/folder located in its current folder, in this way, even if the script is in a “safe” area of the system, it cannot reach a path outside its current folder.
+
+> Zones considered “sensitive” depend on the user operating system and are defined in the `in_danger_zone` function.
+
+Commands **not accessible** in SAFE_MODE :
+- encrypt
+- decrypt
+- delete
+- zip
+- unzip
+- create
+
+Commands **still accessible** in SAFE_MODE :
+- install
+- salt
+- psw
+- read
+- timestamp
+- clean

@@ -18,29 +18,37 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2024-12-14
-Version : 1.0.4
+Date : 2024-12-20
+Version : 1.0.7
 """
-
+# - - - - - BUILT-IN MODULES - - - - -
 import argparse
 import base64
 from datetime import datetime as dt
 from dateutil.relativedelta import relativedelta
-from os import remove, urandom
-from os.path import abspath, basename, exists, getsize
+from os import remove, system, urandom, walk
+from os.path import abspath, basename, dirname, exists, getsize
+from os.path import isdir, isfile, join, relpath, splitext
 import secrets
-from shutil import copyfile
+from shutil import copyfile, rmtree
 from string import ascii_letters, ascii_lowercase
 from string import ascii_uppercase, digits, punctuation
 import subprocess
 import sys
 from typing import Union
+from zipfile import ZipFile, BadZipFile, ZIP_DEFLATED
 
+# - - - - - CONSTANTS - - - - -
+USER_OS = sys.platform
+SUPPORTED_OS = ["win32", "linux", "darwin"]
+SAFE_MODE = False
 SCRIPT_PATH = abspath(sys.argv[0])
+SCRIPT_DIR = dirname(SCRIPT_PATH)
 SCRIPT_NAME = basename(SCRIPT_PATH)
 REQUIREMENTS = ["cryptography", "pyperclip"]
 FILEKEY_EXT = ".key"
 
+# - - - - - NON-BUILT-IN MODULES - - - - -
 def install_from_requirements():
     """
     Installs modules listed in the 'REQUIREMENTS' list with pip.
@@ -48,7 +56,7 @@ def install_from_requirements():
     for package in REQUIREMENTS:
         try:
             # Tries to install the package with pip
-            print(f"Checking and installing the package : {package}")
+            print(f"Checking and installing the package : {package}.")
             subprocess.check_call([sys.executable, "-m",
                 "pip", "install", package])
             print(f"{package} has been successfully installed.")
@@ -58,7 +66,7 @@ def install_from_requirements():
             raise
 
         except Exception as e:
-            print(f"An unexpected error has occurred : {e}")
+            print(f"An unexpected error has occurred : {e}.")
             raise
 
 # As these modules are not built-in, we insert them in a 
@@ -85,17 +93,121 @@ except ImportError:
         elif choice == "n":
             print("Exiting. Please install the missing " 
             "modules manually.")
-            sys.exit(1)
+            sys.exit(0)
         else:
-            print("Invalid input")
+            print("Invalid input.")
             continue
 
-def clean():
-    """Deletes confidential data on the clipboard
-    """
-    pyperclip.copy("")
-    print("The clipboard has been erased")
+# - - - - - SAFETY CHECKS - - - - -
+def safety_check(func):
+    """Decorator : prevents a function from operating in 
+    SAFE_MODE.
 
+    The decorator is attached to all functions able of 
+    modifying/deleting files/folders.
+
+    Args:
+        func: The decorated function.
+
+    Returns:
+        func: SAFE_MODE OFF -> The function is called
+        wrap: SAFE_MODE ON -> The function is muted
+    """    
+    txt=f"This functionality ({func.__name__}) isn't available in safe mode."
+    def wrap(*args, **kwargs):
+        if SAFE_MODE:
+            print(txt)
+            sys.exit(0)
+        else:
+            return func(*args, **kwargs)
+    return wrap
+
+def in_danger_zone(path: str) -> bool:
+    """Determines whether a path corresponds to a 
+    sensitive area of the system.
+
+    Args:
+        path (str): Path to check.
+
+    Returns:
+        bool: True if the path corresponds to a sensitive 
+        area. False otherwise.
+    """
+    # For each system, all paths STARTING with these are 
+    # considered sensitive    
+    danger_roots = {
+    "win32": ["c:\\windows"],
+    "linux": ["/bin", "/sbin", "/usr", "/etc", "/var"],
+    "darwin": ["/bin", "/sbin", "/usr", "/etc", "/var", 
+               "/System"]}
+
+    # For each system, all paths EQUAL to these are 
+    # considered sensitive
+    danger_path = {
+    "win32": ["c:\\"],
+    "linux": ["/"],
+    "darwin": ["/"]}
+
+    path = path.lower()
+
+    for root_path in danger_roots[USER_OS]:
+        if path.startswith(root_path):
+            return True
+        
+    for root_path in danger_path[USER_OS]:
+        if path == root_path:
+            return True
+        
+    return False
+
+def in_current_folder(path: str) -> bool:
+    """Checks if the path or file name inserted by the 
+    user is in the script's current folder.
+
+    Functions that modify file contents or delete 
+    them, expect a target path as argument, and it's 
+    important to ensure that these functions CAN'T reach 
+    sensitive areas of the system.
+
+    The script goes into SAFE_MODE when it is in a 
+    sensitive area of the system, which prevents the 
+    script's modifier functions from being called. 
+    However, to ensure that these zones cannot be reached 
+    when the script is not in SAFE_MODE, by, for example, 
+    entering a sensitive path as an argument, these are 
+    checked to ensure that they are actually in the 
+    script's current folder.
+
+    Args:
+        path (str): Path to check.
+
+    Returns:
+        bool: True if the path is in the current folder.
+        False otherwise.
+    """    
+    path = path.lower()
+    abs_path = abspath(path).lower()
+
+    if abs_path.startswith(SCRIPT_DIR.lower()):
+        return True
+    else:
+        return False
+
+if USER_OS not in SUPPORTED_OS:
+    print(f"This OS ({USER_OS}) isn't supported by the script")
+    print(f"Supported OS: {SUPPORTED_OS}")
+    sys.exit(1)
+
+# If the script is in a sensitive area of the system, 
+# SAFE_MODE is activated.
+if in_danger_zone(SCRIPT_PATH):
+    SAFE_MODE = True
+    print("- - - - CAUTION - - - -") 
+    print("SAFE MODE: The script is located in a critical area of the " 
+          "system, some functions will be disabled.")
+    print("")
+
+# - - - - - INPUT CONTROL FUNCTIONS - - - - -
 def valid_b64_urlsafe(b64_code: Union[str, bytes]) -> bool:
     """Checks if the entry is a valid base64 urlsafe code.
 
@@ -134,19 +246,20 @@ def valid_filename(file_name: str) -> bool:
     # Not a str (unlikely in the context of this script,
     # but who knows?)
     if not isinstance(file_name, str):
-        print("File name must be a str")
+        print("File name must be a str.")
         return False
 
     # The string is too long
     if len(file_name) > 255:
-        print("File name too long")
+        print("File name is too long (must contain less "
+              "than 256 characters).")
         return False
 
     # Iteration to search for a character not in the
     # whitelist
     for char in file_name:
         if char not in whitelist:
-            print("Invalid char in file name")
+            print("Invalid char in file name.")
             return False
 
     # Seems ok
@@ -171,7 +284,7 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     """
     if not isinstance(filekey, str):
         print(f"Wrong type, must be a str ({type(filekey)}"
-        " given)")
+        " given.)")
         return False
 
     # - The filekey will be recovered -
@@ -180,11 +293,11 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     # the file exists and has the right extension
     if not create:
         if not exists(filekey):
-            print(f"{filekey} not found")
+            print(f"{filekey} not found.")
             return False
 
         if not filekey.endswith(FILEKEY_EXT):
-            print(f"Filekey must be {FILEKEY_EXT}")
+            print(f"Filekey must be '{FILEKEY_EXT}'.")
             return False
 
     # - The filekey will be created -
@@ -194,7 +307,7 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
             return False
         
         if exists(filekey + FILEKEY_EXT):
-            print(f"{filekey} already exists")
+            print(f"{filekey} already exists.")
             return False
 
     return True
@@ -249,7 +362,7 @@ def valid_password(psw: str) -> bool:
 
     if len(psw) < MIN_LENGTH:
         print(f"Password must be at least {MIN_LENGTH} "
-              "characters long")
+              "characters long.")
         return False
     
     for char in psw:
@@ -269,7 +382,7 @@ def valid_salt(salt: str) -> bool:
         bool: Valid salt (True) or not (False)
     """
     if len(salt) == 0:
-        print("No salt value inserted")
+        print("No salt value inserted.")
         return False
     
     # No space
@@ -279,8 +392,189 @@ def valid_salt(salt: str) -> bool:
         salt_ok = base64.urlsafe_b64decode(salt)
         return True
     except (ValueError, TypeError):
-        print("Invalid salt, must be a b64")
+        print("Invalid salt, must be a b64.")
         return False
+
+def get_confidential_input(prompt: str) -> str:
+    """Retrieves and returns a confidential entry by 
+    replacing each inserted character with an asterisk on 
+    the terminal display.
+
+    Args:
+        prompt (str): 
+
+    Raises:
+        Invalid char: KeyboardInterrupt
+
+    Returns:
+        str: Plain text input inserted by the user
+    """    
+    secret_input = ""
+    substitution_char = '*'
+
+    sys.stdout.write(prompt) # Writing to std output
+    sys.stdout.flush() # Instant display
+    
+    # OS detection
+    # Replacing user input with asterisks means bypassing the 
+    # standard echo of characters entered from the keyboard. 
+    # To achieve this, we need to use operating system-specific
+    # functions for low-level management of terminal 
+    # input/output, so as to be able to display asterisks 
+    # instead of real characters. We are therefore planning 
+    # two separate procedures: one for Windows and another 
+    # for Linux.
+    if USER_OS == "win32":  # Windows
+        import msvcrt
+        while True:
+            # reads a single character from the keyboard 
+            # without echo (without displaying it in the 
+            # terminal). The character is returned in bytes.
+            char = msvcrt.getch()
+
+            # The enter key is pressed
+            if char in {b"\r", b"\n"}:  # Enter key
+                break
+            
+            # The backspace key is pressed. The last char 
+            # is deleted
+            elif char == b"\x08":
+                if len(secret_input) > 0:
+                    secret_input = secret_input[:-1]
+                    # We replace the last character 
+                    # displayed with a space, then go back 
+                    # again (\b) to visually delete the 
+                    # character.
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+            
+            # Directional key prefixes on Windows.
+            # We make sure that the cursor cannot move 
+            # other than by using the backspace key.
+            elif char == b"\xe0":  # 
+                char = msvcrt.getch()  # Lire le code spécifique de la flèche
+                if char == b"H":  # Up
+                    pass
+                elif char == b"P":  # Down
+                    pass
+                elif char == b"K":  # Left
+                    pass
+                elif char == b"M":  # Right
+                    pass
+
+            # Ctrl+C / Ctrl+V
+            elif char == b"\x03" or char == b'\x16':  # 
+                pass
+            
+            # ECHAP
+            elif char == b'\x1b':
+                pass
+            
+            # All other inserted keys are retrieved here, 
+            # since not all of them are printable, we attempt 
+            # to decode the input in utf-8 in order to handle 
+            # any exception appropriately
+            else:
+                try:
+                    secret_input += char.decode("utf-8")
+                except UnicodeDecodeError:
+                    print("Invalid input.")
+                    sys.stdout.write(prompt)
+                    sys.stdout.flush()
+                    continue
+
+                sys.stdout.write(substitution_char)
+                sys.stdout.flush()
+
+    else:  # Linux/macOS
+        # termios : controls low-level terminal parameters 
+        # (specific to Unix-like systems)
+        # tty : provides high-level functions to manage 
+        # terminal modes, such as "raw" mode (specific to 
+        # Unix-like systems)
+        import termios
+        import tty
+
+        # Retrieves the file descriptor (an integer uniquely 
+        # identifying an open file or a data floxw) associated 
+        # with standard input (sys.stdin)
+        fd = sys.stdin.fileno()
+
+        # Retrieves the terminal's current settings 
+        # (associated with the fd file descriptor) and stores 
+        # them in the old_settings variable. These settings 
+        # will be restored later to restore normal terminal 
+        # behavior.
+        old_settings = termios.tcgetattr(fd)
+
+        # We create a try...finally block to guarantee that 
+        # the terminal parameters will be restored to their 
+        # initial state, even if an error occurs during 
+        # password entry.
+        try:
+            # Configure terminal in raw mode, disabling echo 
+            # of characters entered and management of special 
+            # keys.
+            tty.setraw(fd)  # Set raw mode (no echo)
+            while True:
+                # Reading a character from std input
+                char = sys.stdin.read(1)
+
+                # Enter key pressed
+                if char in {"\r", "\n"}:
+                    break
+
+                # Backspace key pressed. The last char is 
+                # deleted.
+                elif char == "\x7f":
+                    if len(secret_input) > 0:
+                        secret_input = secret_input[:-1]
+                        sys.stdout.write("\b \b")  # Remove asterisk
+                        sys.stdout.flush()
+                
+                # Directionnal keys pressed
+                elif char == "\x1b":
+                    next1, next2 = sys.stdin.read(1), sys.stdin.read(1)
+                    if next1 == "[":
+                        if next2 == "A":  # Up
+                            pass
+                        elif next2 == "B":  # Down
+                            pass
+                        elif next2 == "C":  # Right
+                            pass
+                        elif next2 == "D":  # Left
+                            pass
+
+                # Ctrl+C
+                elif char == "\x03" or char == "\x16":
+                    pass
+
+                # All other keyboard inputs
+                else:
+                    # The inserted character is added
+                    secret_input += char
+
+                    # Displays the substitution character on 
+                    # the standard output
+                    sys.stdout.write(substitution_char)
+                    sys.stdout.flush()
+        finally:
+            # Restores initial terminal settings (those stored 
+            # in old_settings) using file descriptor fd. 
+            # termios.TCSADRAIN indicates that changes should 
+            # be applied after all pending output has been 
+            # written.
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # Restore initial params
+
+    sys.stdout.write("\n")  # Go to next line
+    return secret_input
+
+# - - - - - FEATURE FUNCTIONS - - - - -
+def clean():
+    """Deletes confidential data on the clipboard
+    """
+    pyperclip.copy("")
+    print("The clipboard has been erased.")
 
 def read_filekey(filekey: str, return_value: bool = False) -> str:
     """Displays or returns the Base64 key of a filekey.
@@ -309,6 +603,7 @@ def read_filekey(filekey: str, return_value: bool = False) -> str:
     else:
         sys.exit(1)
 
+@safety_check
 def create_filekey(file_name: str, key: str):
     """Creates a filekey based on a base64 key.
 
@@ -340,47 +635,74 @@ def create_filekey(file_name: str, key: str):
     if valid_b64_urlsafe(key_bytes):
         with open(file_name + FILEKEY_EXT, 'wb') as f:
             f.write(key_bytes)
-        print(f"{file_name + FILEKEY_EXT} has been created in the current folder")
+        print(f"{file_name + FILEKEY_EXT} has been created in the current folder.")
     else:
-        print("Invalid key, must be base64 urlsafe")
+        print("Invalid key, must be base64 urlsafe.")
         sys.exit(1)
 
-def secure_delete(filename: str, num_passes: int = 3):
+@safety_check
+def secure_delete(filename: str, encryption_passes: int = 2,
+                  shuffle: bool = False, silent_mode: bool = False):
     """
     Securely deletes a file from the current folder.
 
-    The file is blindly encrypted several times (without 
-    the key being communicated) with a new random key for 
-    each pass. 
+    Before its deletion, the file is blindly encrypted 
+    several times (without the key being communicated) 
+    with a new random key for each pass. Finally, the 
+    file size is truncated to coincide with the original 
+    size.
+    
+    Optionally, the file bytes can be randomly shuffled 
+    just after truncation by activating the option 
+    '--shuffle' / '-s'.
 
-    Note: Given that the file size increases non-linearly 
-    with each pass, setting the number of passes to 3 seems 
-    to be a good compromise, especially for large files. 
+    Note about encryption passes: The file size can 
+    temporarily increase significantly with each 
+    encryption pass. Even if the file returns to its 
+    initial size after the truncation phase, setting 
+    the number of passes to 2 seems a more than 
+    acceptable compromise, particularly for large files.
+
+    Note about the shuffle option: The operation can 
+    be long for large files (approx. 2 min on a standard 
+    PC for a 100MB file).
 
     Args:
         filename (str): The file name to delete.
-        num_passes (int): The number of encryption passes.
-        Default to 3.
+
+        encryption_passes (int): The number of encryption 
+        passes. Default to 2.
+
+        shuffle (bool): Random file bytes shuffling 
+        before deletion. Default to False.
+
+        silent_mode (bool): Minimum prints
     
     Error:
-        filename arg not a str: sys.exit(1)
+        Invalid filename arg: sys.exit(1)
+        Invalid encryption_passes arg: sys.exit(1)
         File not found: sys.exit(1)
-        Script as filename arg: sys.exit(1)
-        Error during encryption pass : raise Exception
+        Current script as filename arg: sys.exit(1)
+        Error during encryption: raise Exception
+        Error during shuffle: OSError
     """
     is_filekey = False
 
     if not isinstance(filename, str):
-        print("filename must be a str")
+        print("filename must be a str.")
         sys.exit(1)
-
-    elif not exists(filename):
-        print(f"{filename} not found.")
+    
+    elif not isinstance(encryption_passes, int) or encryption_passes < 0:
+        print("Invalid 'encryption_passes' arg. Must be an integer >= 0.")
+        sys.exit(1)
+    
+    elif not in_current_folder(filename):
+        print(f"{filename} not in the current folder.")
         sys.exit(1)
     
     # Prevents script from killing itself 
     elif filename == SCRIPT_PATH or filename == SCRIPT_NAME:
-        print("The script cannot delete itself")
+        print("The script cannot delete itself.")
         sys.exit(1)
     
     # The file to be deleted is a filekey
@@ -393,34 +715,40 @@ def secure_delete(filename: str, num_passes: int = 3):
     # Get original file size
     original_file_size = getsize(filename)
 
-    # User confirmation
-    choice = None
-    while choice != "y" and choice != "n":
-        if is_filekey:
-            print("You are about to irreversibly delete the " 
-                  f"filekey {filename}, if it's still "
-                  "useful for decrypting a file, please "
-                  "note its key in a safe place before "
-                  "deleting it ('read' command).")
-        else:
-            print("You are about to irreversibly delete " 
-                  f"the file {filename}")
-            print(f"File size: {round(original_file_size/1024, 2)} ko")
+    if not silent_mode:
+        # User confirmation
+        choice = None
+        while choice != "y" and choice != "n":
+            if is_filekey:
+                print("You are about to irreversibly delete the " 
+                    f"filekey '{filename}', if it's still "
+                    "useful for decrypting a file, please "
+                    "note its key in a safe place before "
+                    "deleting it ('read' command).")
+            else:
+                print("You are about to irreversibly delete " 
+                    f"the file '{filename}'.")
+                print(f"From: {abspath(filename)}")
+                print(f"File size: {round(original_file_size/1024, 3)} ko")
 
-        choice = input("Do you confirm this operation? (y/n): ")
-        choice = choice.lower()
+            choice = input("Do you confirm this operation? (y/n): ")
+            choice = choice.lower()
 
-        if choice == "y":
-            pass
-        elif choice == "n":
-            print("Exiting...")
-            sys.exit(0)
-        else:
-            print("Invalid input")
-            continue
+            if choice == "y":
+                pass
+            elif choice == "n":
+                print("Exiting...")
+                sys.exit(0)
+            else:
+                print("Invalid input.")
+                continue
+    
+    if not silent_mode:
+        if encryption_passes > 0:
+            print("Encryption...")
 
     # Encryption passes
-    for i in range(num_passes):
+    for i in range(encryption_passes):
         # Generate a random key
         key = Fernet.generate_key()
 
@@ -448,15 +776,211 @@ def secure_delete(filename: str, num_passes: int = 3):
             with open(filename, "wb") as file:
                 file.write(encrypted_data)
 
-            print(f"Pass {i + 1}/{num_passes} completed.")
-
+            if encryption_passes > 1 and not silent_mode:
+                print(f"Pass {i + 1}/{encryption_passes} completed.")
         except Exception as e:
-            print(f"Error during encryption pass {i + 1}: {e}")
+            print(f"Error during encryption pass {i + 1}: {e}.")
             raise
-    
-    print(f"File '{filename}' encrypted {num_passes} times")
+
+    # File truncation and shuffle
+    # File is trunced and bytes are randomly shuffled if
+    # 'shuffle' is True.
+    try:
+        with open(filename, "r+b") as f:
+            # Truncates the file to its original size
+            if not silent_mode:
+                print("Resizing...")
+            f.truncate(original_file_size)
+
+            if shuffle:
+                if not silent_mode:
+                    print("Shuffling...")
+                # Bytes type is immutable, so we transform
+                # it into a bytearray, which is a mutable 
+                # sequence.
+                bytes_array = bytearray(f.read())
+
+                # Inplace bytearray shuffle
+                # The SystemRandom class uses the operating 
+                # system's entropy to make a cryptosecure 
+                # shuffle.
+                secrets.SystemRandom().shuffle(bytes_array)
+
+                # returns the cursor to the beginning of the 
+                # file before writing the shuffled bytes
+                f.seek(0)
+
+                # Writing shuffled bytes
+                f.write(bytes_array)
+    except OSError:
+        raise
+
     remove(filename)  # Delete the file after encryption
-    print(f"File '{filename}' deleted.")
+    if not silent_mode:
+        print(f"'{filename}' has been deleted.")
+
+@safety_check
+def zip_file(target_to_zip: str, delete: bool = False):
+    """
+    Compresses a file or folder into a ZIP archive.
+
+    Args:
+        path_to_compress (str): File/folder to compress.
+        delete (bool): Deletes the original file/folder.
+    """
+    
+    if not in_current_folder(target_to_zip):
+        print(f"{target_to_zip} not in the current folder.")
+        sys.exit(1)
+    
+    if target_to_zip == SCRIPT_PATH or target_to_zip == SCRIPT_NAME:
+        print("The script cannot zip itself.")
+        sys.exit(1)
+    
+    # File name without extension
+    base_filename = splitext(basename(target_to_zip))[0]
+    zip_filename = base_filename + ".zip" # Zip file name
+
+    # Same zip file name in the current folder
+    if exists(zip_filename):
+        print(f"{zip_filename} already exists.")
+        sys.exit(1)
+    
+    # User confirmation if  the original file/folder 
+    # will be deleted after compression.
+    if delete:
+        choice = None
+        while choice != 'y' and choice != 'n':
+            if isdir(target_to_zip):
+                print("Compression will delete the "
+                    f"'{target_to_zip}' folder.")
+                print(f"From: {abspath(target_to_zip)}")
+            elif isfile(target_to_zip):
+                print("Compression will delete the "
+                    f"'{target_to_zip}' file.")
+                print(f"From: {abspath(target_to_zip)}")
+            else:
+                print(f"Path: '{target_to_zip}' is "
+                    "neither a file nor a folder.")
+                sys.exit(1)
+            
+            choice = input("Do you confirm the operation ? (y/n): ")
+            choice = choice.lower()
+
+            if choice == 'y':
+                pass
+            elif choice == 'n':
+                print("Cancelation...")
+                sys.exit(0)
+            else:
+                print("Invalid input.")
+                continue
+    
+    print("Zipping...")
+    # Open a zip archive in write mode
+    # The 'deflated' algorithm is used to compress the 
+    # target without loss.
+    with ZipFile(zip_filename, 'w', ZIP_DEFLATED) as zipf:
+        # Target is a folder.
+        if isdir(target_to_zip):
+            total_files = 0
+            # The walk method recursively traverses a 
+            # directory and all its sub-directories. It 
+            # generates a sequence of tuples, each 
+            # containing information about a visited 
+            # directory.
+            for root, dirs, files in walk(target_to_zip):
+                for file in files:
+                    file_path = join(root, file)
+                    total_files += 1
+                    # Adds the file to the archive with a 
+                    # relative path
+                    arch_name = join(basename(target_to_zip), relpath(file_path, start=target_to_zip))
+                    zipf.write(file_path, arcname=arch_name)
+                    print(f"Added: {file_path}")
+
+            if delete:
+                print("Deleting files...")
+                deleted_files = 0
+                for root, dirs, files in walk(target_to_zip):
+                    for file in files:
+                        file_path = join(root, file)
+                        secure_delete(file_path, silent_mode = True)
+                        deleted_files += 1
+                        print(f"File deletion {deleted_files}/{total_files}")
+
+        # Target is a file
+        elif isfile(target_to_zip):
+            arch_name = basename(target_to_zip)
+            zipf.write(target_to_zip, arcname=arch_name)
+            print(f"Added : {target_to_zip}")
+
+            if delete:
+                secure_delete(target_to_zip, silent_mode = True)
+                print(f"{target_to_zip} has been securely deleted.")
+        
+        # Error: neither a file nor a folder.
+        else:
+            print(f"Path: '{target_to_zip}' is neither a file nor a folder.")
+            sys.exit(1)
+
+    # Archive is now created and closed. At this point, 
+    # if the target is a folder, the original folder is 
+    # still present in the script's current folder, 
+    # emptied of all its files. Deleting this folder and 
+    # any sub-folders (all empty) may, on some Windows 
+    # systems, raise a 'PermissionError' exception. 
+    # To avoid this, we run specific commands for Windows 
+    # and Linux to force the deletion of the folder.
+    if isdir(target_to_zip) and delete:
+        try:
+            if USER_OS == "win32":
+                try:
+                    rmtree(target_to_zip)
+                except PermissionError:
+                    system(f'rmdir /S /Q "{target_to_zip}"')
+            
+            # Since a check is made at the start of the 
+            # script to verify whether the OS is win32, 
+            # linux or darwin. We assume that user is 
+            # under Linux or MacOS.
+            else:
+                try:
+                    rmtree(target_to_zip)
+                except PermissionError:
+                    system(f'rm -rf "{target_to_zip}"')
+        except Exception:
+            print("PermissionError occured")
+    
+    print(f"'{target_to_zip}' compressed successfully.")
+            
+@safety_check
+def unzip_file(arch_name: str):
+    """_summary_
+
+    Args:
+        arch_name (str): _description_
+    """
+    
+    if not in_current_folder(arch_name):
+        print(f"{arch_name} not in the current folder.")
+        sys.exit(1)
+    
+    try:
+        with ZipFile(arch_name, 'r') as zipf:
+            print(f"Unzipping {arch_name}...")
+            zipf.extractall()
+        print(f"{arch_name} extracted successfully.")
+    except FileNotFoundError as e:
+        print(f"Error : Archive not found : {e}")
+        sys.exit(1)
+    except BadZipFile:
+        print("Invalid archive. If the archive is encrypted, "
+              "please decrypt it first.")
+        sys.exit(1)
+    except OSError as e:
+        print(f"Error during the extraction : {e}")
+        sys.exit(1)
 
 def since_when(token_timestamp: int) -> str:
     """Returns the elapsed time between an inserted 
@@ -564,7 +1088,7 @@ def get_timestamp(encrypted_file: str,
         int : The Unix timestamp of the token
     """
     if not exists(encrypted_file):
-        print(f"{encrypted_file} not found")
+        print(f"{encrypted_file} not found.")
         sys.exit(1)
     
     # From a file crypted with a filekey
@@ -588,7 +1112,7 @@ def get_timestamp(encrypted_file: str,
     else:
         print("Wrong args combinaison, must be :")
         print("encryted_file + filekey OR "
-              "encypted_file + psw + salt")
+              "encypted_file + psw + salt.")
         sys.exit(1)
 
     with open(encrypted_file, 'rb') as encrypted_data:
@@ -766,180 +1290,7 @@ def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
 
     return f
 
-def get_confidential_input(prompt: str) -> str:
-    """Retrieves and returns a confidential entry by 
-    replacing each inserted character with an asterisk on 
-    the terminal display.
-
-    Args:
-        prompt (str): 
-
-    Raises:
-        Invalid char: KeyboardInterrupt
-
-    Returns:
-        str: Plain text input inserted by the user
-    """    
-    secret_input = ""
-    substitution_char = '*'
-
-    sys.stdout.write(prompt) # Writing to std output
-    sys.stdout.flush() # Instant display
-    
-    # OS detection
-    # Replacing user input with asterisks means bypassing the 
-    # standard echo of characters entered from the keyboard. 
-    # To achieve this, we need to use operating system-specific
-    # functions for low-level management of terminal 
-    # input/output, so as to be able to display asterisks 
-    # instead of real characters. We are therefore planning 
-    # two separate procedures: one for Windows and another 
-    # for Linux.
-    if sys.platform == "win32":  # Windows
-        import msvcrt
-        while True:
-            # reads a single character from the keyboard 
-            # without echo (without displaying it in the 
-            # terminal). The character is returned in bytes.
-            char = msvcrt.getch()
-
-            # The enter key is pressed
-            if char in {b"\r", b"\n"}:  # Enter key
-                break
-            
-            # The backspace key is pressed. The last char 
-            # is deleted
-            elif char == b"\x08":
-                if len(secret_input) > 0:
-                    secret_input = secret_input[:-1]
-                    # We replace the last character 
-                    # displayed with a space, then go back 
-                    # again (\b) to visually delete the 
-                    # character.
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
-            
-            # Directional key prefixes on Windows.
-            # We make sure that the cursor cannot move 
-            # other than by using the backspace key.
-            elif char == b"\xe0":  # 
-                char = msvcrt.getch()  # Lire le code spécifique de la flèche
-                if char == b"H":  # Up
-                    pass
-                elif char == b"P":  # Down
-                    pass
-                elif char == b"K":  # Left
-                    pass
-                elif char == b"M":  # Right
-                    pass
-
-            # Ctrl+C / Ctrl+V
-            elif char == b"\x03" or char == b'\x16':  # 
-                pass
-            
-            # ECHAP
-            elif char == b'\x1b':
-                pass
-            
-            # All other inserted keys are retrieved here, 
-            # since not all of them are printable, we attempt 
-            # to decode the input in utf-8 in order to handle 
-            # any exception appropriately
-            else:
-                try:
-                    secret_input += char.decode("utf-8")
-                except UnicodeDecodeError:
-                    print("Invalid input")
-                    sys.stdout.write(prompt)
-                    sys.stdout.flush()
-                    continue
-
-                sys.stdout.write(substitution_char)
-                sys.stdout.flush()
-
-    else:  # Linux/macOS
-        # termios : controls low-level terminal parameters 
-        # (specific to Unix-like systems)
-        # tty : provides high-level functions to manage 
-        # terminal modes, such as "raw" mode (specific to 
-        # Unix-like systems)
-        import termios
-        import tty
-
-        # Retrieves the file descriptor (an integer uniquely 
-        # identifying an open file or a data floxw) associated 
-        # with standard input (sys.stdin)
-        fd = sys.stdin.fileno()
-
-        # Retrieves the terminal's current settings 
-        # (associated with the fd file descriptor) and stores 
-        # them in the old_settings variable. These settings 
-        # will be restored later to restore normal terminal 
-        # behavior.
-        old_settings = termios.tcgetattr(fd)
-
-        # We create a try...finally block to guarantee that 
-        # the terminal parameters will be restored to their 
-        # initial state, even if an error occurs during 
-        # password entry.
-        try:
-            # Configure terminal in raw mode, disabling echo 
-            # of characters entered and management of special 
-            # keys.
-            tty.setraw(fd)  # Set raw mode (no echo)
-            while True:
-                # Reading a character from std input
-                char = sys.stdin.read(1)
-
-                # Enter key pressed
-                if char in {"\r", "\n"}:
-                    break
-
-                # Backspace key pressed. The last char is 
-                # deleted.
-                elif char == "\x7f":
-                    if len(secret_input) > 0:
-                        secret_input = secret_input[:-1]
-                        sys.stdout.write("\b \b")  # Remove asterisk
-                        sys.stdout.flush()
-                
-                # Directionnal keys pressed
-                elif char == "\x1b":
-                    next1, next2 = sys.stdin.read(1), sys.stdin.read(1)
-                    if next1 == "[":
-                        if next2 == "A":  # Up
-                            pass
-                        elif next2 == "B":  # Down
-                            pass
-                        elif next2 == "C":  # Right
-                            pass
-                        elif next2 == "D":  # Left
-                            pass
-
-                # Ctrl+C
-                elif char == "\x03" or char == "\x16":
-                    pass
-
-                # All other keyboard inputs
-                else:
-                    # The inserted character is added
-                    secret_input += char
-
-                    # Displays the substitution character on 
-                    # the standard output
-                    sys.stdout.write(substitution_char)
-                    sys.stdout.flush()
-        finally:
-            # Restores initial terminal settings (those stored 
-            # in old_settings) using file descriptor fd. 
-            # termios.TCSADRAIN indicates that changes should 
-            # be applied after all pending output has been 
-            # written.
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)  # Restore initial params
-
-    sys.stdout.write("\n")  # Go to next line
-    return secret_input
-
+@safety_check
 def encrypt(filename: str, overwrite: bool = True, 
             given_filekey: Union[str, None] = None, 
             psw: Union[str, None] = None, 
@@ -977,6 +1328,15 @@ def encrypt(filename: str, overwrite: bool = True,
         Invalid salt: sys.exit(1)
         Unexpected error: sys.exit(1)
     """
+    """ if in_danger_zone(filename):
+        print("Error: the file is in a critical area of "
+              "the system")
+        sys.exit(1) """
+    
+    if not in_current_folder(filename):
+        print(f"{filename} not in the current folder.")
+        sys.exit(1)
+    
     print(f"---- Encryption of {filename} ----")
 
     # No password given : function will be dealing with a filekey
@@ -998,7 +1358,7 @@ def encrypt(filename: str, overwrite: bool = True,
                     generated_filekey_name = choice + FILEKEY_EXT
                 else:
                     print("Invalid file name, please avoid spaces"
-                    " and symbols")
+                    " and symbols.")
                     continue
 
             # Filekey generation
@@ -1024,7 +1384,7 @@ def encrypt(filename: str, overwrite: bool = True,
             with open(generated_filekey_name, 'rb') as filekey:
                 key = filekey.read() # key = bytes
         except FileNotFoundError:
-            print(f"Error : No such keyfile : {filename} in the current folder")
+            print(f"Error : No such keyfile : {filename} in the current folder.")
             sys.exit(1)
 
         # Fernet object creation with the generated key
@@ -1042,13 +1402,12 @@ def encrypt(filename: str, overwrite: bool = True,
             available_choices = ['y', 'yes', 'n', 'no'] 
 
             while choice not in available_choices:
-                choice = input("CAUTION: "
-                "You are about to encrypt the file "
-                f"{filename} by overwriting it " 
-                "with a NEW randomly generated salt.\n"
-                "The new salt value will be displayed after " 
-                "confirmation and must be noted and kept carefully.\n" 
-                "Do you confirm this operation? (y/n)")
+                print("CAUTION: You are about to encrypt "
+                f"{filename} by overwriting it with a new "
+                "random salt. The new salt will be displayed "
+                "after confirmation and must be noted and " 
+                "kept safe.")
+                choice = input("Do you confirm this operation? (y/n): ")
                 choice = choice.lower()
 
                 if choice == 'n' or choice == 'no':
@@ -1059,7 +1418,7 @@ def encrypt(filename: str, overwrite: bool = True,
                     pass
 
                 else:
-                    print("Wrong input")
+                    print("Wrong input.")
                     continue
 
         # No salt entered, only password needs to be checked
@@ -1079,7 +1438,7 @@ def encrypt(filename: str, overwrite: bool = True,
 
         # Who knows ?
         else:
-            print("Unexpected error ('encrypt' with psw)")
+            print("Unexpected error ('encrypt' with psw).")
             sys.exit(1)
 
     # Copying the file before overwriting it
@@ -1093,7 +1452,7 @@ def encrypt(filename: str, overwrite: bool = True,
             copyfile(filename, copy_filename)
         except FileNotFoundError:
             print(f"Error : No such file : {filename} " 
-                  "in the current folder")
+                  "in the current folder.")
             if psw == None:
                 remove(generated_filekey_name)
             sys.exit(1)
@@ -1105,7 +1464,7 @@ def encrypt(filename: str, overwrite: bool = True,
             file_bytes = file.read() # file_bytes = bytes
     except FileNotFoundError:
         print(f"Error : No such file : {filename} in the "
-              "current folder")
+              "current folder.")
         if psw == None:
             remove(generated_filekey_name)
         sys.exit(1)
@@ -1122,8 +1481,9 @@ def encrypt(filename: str, overwrite: bool = True,
     print(f"---- Operation completed successfully ----")
     if given_filekey == None and psw == None:
         print("A keyfile.key file has been generated in the " 
-              "current folder, please keep it safe")
+              "current folder, please keep it safe.")
 
+@safety_check
 def decrypt(filename: str,
             filekey_name: Union[str, None] = None, 
             psw: Union[str, None] = None, 
@@ -1155,6 +1515,15 @@ def decrypt(filename: str,
         Invalid salt: sys.exit(1)
         Invalid token: sys.exit(1)
     """
+    """ if in_danger_zone(filename):
+        print("Error: the file is in a critical area of "
+              "the system")
+        sys.exit(1) """
+    
+    if not in_current_folder(filename):
+        print(f"{filename} not in the current folder.")
+        sys.exit(1)
+
     print(f"---- Decryption of {filename} ----")
 
     # No password given : function will be dealing with a filekey
@@ -1169,7 +1538,7 @@ def decrypt(filename: str,
                 key = filekey.read() # key = bytes
         except FileNotFoundError:
             print(f"Error : No such filekey : '{filekey_name}'"
-            " in the current folder")
+            " in the current folder.")
             sys.exit(1)
 
         # Fernet object creation with key
@@ -1207,6 +1576,7 @@ def decrypt(filename: str,
 
     print(f"---- Operation completed successfully ----")
 
+# - - - - - ARGPARSER - - - - -
 def main():
     """The argparse structure is defined, as are its call
     logics
@@ -1295,6 +1665,28 @@ def main():
         "filename",
         help="The file name to delete"
     )
+    parser_delete.add_argument("-s", "--shuffle", default= False, 
+        help="Shuffle file bytes before deletion", action="store_true")
+
+    # - - - - - - Command : zip
+    parser_zip = subparsers.add_parser(
+        "zip", help="Zip a file/folder"
+    )
+    parser_zip.add_argument(
+        "target", help="File or folder to zip"
+    )
+    parser_zip.add_argument(
+        "-d", "--delete", default= False, action="store_true",
+        help="Deletes original files after archiving"
+    )
+
+    # - - - - - - Command : unzip
+    parser_unzip = subparsers.add_parser(
+        "unzip", help="Unzip a file/folder"
+    )
+    parser_unzip.add_argument(
+        "arcname", help="Archive to unzip"
+    )
 
     # - - - - - - Command : clean
     parser_clean = subparsers.add_parser(
@@ -1382,7 +1774,7 @@ def main():
             salt= salt)
         
         else:
-            print("Wrong command combinaison")
+            print("Wrong command combinaison.")
             sys.exit(1)
 
     elif args.command == "create":
@@ -1390,8 +1782,20 @@ def main():
         create_filekey(args.filename, key)
     
     elif args.command == "delete":
-        secure_delete(args.filename)
+        if args.shuffle:
+            secure_delete(args.filename, shuffle=True)
+        else:
+            secure_delete(args.filename)
     
+    elif args.command == "zip":
+        if args.delete:
+            zip_file(args.target, delete=True)
+        else:
+            zip_file(args.target)
+    
+    elif args.command == "unzip":
+        unzip_file(args.arcname)
+
     elif args.command == "clean":
         clean()
 
@@ -1444,7 +1848,7 @@ def main():
             decrypt(args.filename, args.filekey)
 
     else:
-        print("ERROR : Unknown argument")
+        print("ERROR : Unknown argument.")
         sys.exit(1)
 
 if __name__ == "__main__":
