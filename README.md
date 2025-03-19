@@ -47,6 +47,8 @@
   - [Script SAFE\_MODE](#script-safe_mode)
 
 # Filecrypt
+![filecrypt_logo](https://github.com/user-attachments/assets/5a178628-cb63-41b5-ae31-07195d5673ff)
+
 This Python script encrypts/decrypts files located in the script's current folder. The program is based on **Fernet**, an implementation of the AES-128 algorithm.
 
 > For security reasons, the script can only be placed in a non-sensitive area of the system, and can only access its current folder. If the script is placed in a sensitive area, SAFE_MODE is activated, preventing the call of any file-modifying function (see 'Some technical details' section for more information).
