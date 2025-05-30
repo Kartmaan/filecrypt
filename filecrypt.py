@@ -18,8 +18,8 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2025-05-28
-Version : 1.0.8
+Date : 2025-05-30
+Version : 1.0.9
 """
 
 # ===================================================================
@@ -51,7 +51,7 @@ SAFE_MODE = False
 SCRIPT_PATH = abspath(sys.argv[0])
 SCRIPT_DIR = dirname(SCRIPT_PATH)
 SCRIPT_NAME = basename(SCRIPT_PATH)
-REQUIREMENTS = ["cryptography", "pyperclip"]
+REQUIREMENTS = ["cryptography", "pyperclip", "python-dateutil"]
 FILEKEY_EXT = ".key"
 
 # ===================================================================
@@ -809,10 +809,11 @@ def zip_file(target_to_zip: str, delete: bool = False):
             
 @safety_check
 def unzip_file(arch_name: str):
-    """_summary_
+    """
+    Unzip an archive.
 
     Args:
-        arch_name (str): _description_
+        arch_name (str): Name of the compressed file
     """
     
     if not in_current_folder(arch_name):
@@ -995,20 +996,14 @@ def salt_gen():
 
     print(salt_b64)
 
-def psw_gen(length=17, include_uppercase=True, 
+def psw_gen(length=17, include_uppercase=True,
             include_lowercase=True, include_digits=True, 
-            include_symbols=False):
+            include_symbols=True):
     """Generates and a strong random password and print it.
 
     The function uses the 'secrets' module to randomly 
     select characters from an iterable (alphabet) in a 
     cryptographically secure way, using system entropy.
-
-    Note : by default, symbol inclusion is disabled, as 
-    this could generate syntax conflicts in the terminal.
-    To compensate for this, the password length is set to 
-    17 by default, in order to keep the entropy above 
-    100 bits.
 
     Args:
         length (int, optional): Password length. Defaults 
