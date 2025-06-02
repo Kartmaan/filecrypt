@@ -197,7 +197,7 @@ python filecrypt.py salt
 Generates a strong password and print it, so that it can be used to encrypt files. By default, the password is 12 characters long, made up of : 
 - Upper letters
 - Lower letters 
-- Digits.
+- Digits
 - Symbols
 
 To avoid syntax conflicts in the terminal, generated passwords don't include symbols. To compensate for this, the length of the password word is set to 17, in order to obtain an entropy greater than 100 bits. 

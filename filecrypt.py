@@ -32,7 +32,7 @@ from datetime import datetime as dt
 from dateutil.relativedelta import relativedelta
 from os import remove, system, urandom, walk
 from os.path import abspath, basename, dirname, exists, getsize
-from os.path import isdir, isfile, join, relpath, splitext
+from os.path import isdir, isfile, join, relpath, realpath, splitext
 import secrets
 from shutil import copyfile, rmtree
 from string import ascii_letters, ascii_lowercase
@@ -158,14 +158,15 @@ def in_danger_zone(path: str) -> bool:
     "linux": ["/"],
     "darwin": ["/"]}
 
-    path = path.lower()
+    # Resolve symlinks and normalize the path, then convert to lowercase
+    resolved_path = realpath(path).lower()
 
     for root_path in danger_roots[USER_OS]:
-        if path.startswith(root_path):
+        if resolved_path.startswith(root_path):
             return True
         
     for root_path in danger_path[USER_OS]:
-        if path == root_path:
+        if resolved_path == root_path:
             return True
         
     return False
@@ -194,14 +195,19 @@ def in_current_folder(path: str) -> bool:
     Returns:
         bool: True if the path is in the current folder.
         False otherwise.
-    """    
-    path = path.lower()
-    abs_path = abspath(path).lower()
+    """
+    # Resolve symlinks and normalize the path, then convert to lowercase
+    real_target_path = realpath(path).lower()
+    real_script_dir = realpath(SCRIPT_DIR).lower()
 
-    if abs_path.startswith(SCRIPT_DIR.lower()):
+    if real_target_path.startswith(real_script_dir):
         return True
     else:
         return False
+
+# ===================================================================
+#                          INITIAL CHECKS
+# ===================================================================
 
 if USER_OS not in SUPPORTED_OS:
     print(f"This OS ({USER_OS}) isn't supported by the script")
@@ -1176,10 +1182,6 @@ def encrypt(filename: str, overwrite: bool = True,
         Invalid salt: sys.exit(1)
         Unexpected error: sys.exit(1)
     """
-    """ if in_danger_zone(filename):
-        print("Error: the file is in a critical area of "
-              "the system")
-        sys.exit(1) """
     
     if not in_current_folder(filename):
         print(f"{filename} not in the current folder.")
