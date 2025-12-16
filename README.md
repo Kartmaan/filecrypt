@@ -47,7 +47,8 @@
   - [Script SAFE\_MODE](#script-safe_mode)
 
 # Filecrypt
-![filecrypt_logo](https://github.com/user-attachments/assets/5a178628-cb63-41b5-ae31-07195d5673ff)
+<img width="380" height="380" alt="filecrypt_logo" src="https://github.com/user-attachments/assets/2a140939-496e-4f93-b14f-ec947575661a" />
+
 
 This Python script encrypts/decrypts files located in the script's current folder. The program is based on **Fernet**, an implementation of the AES-128 algorithm.
 
