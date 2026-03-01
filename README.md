@@ -201,8 +201,6 @@ Generates a strong password and print it, so that it can be used to encrypt file
 - Digits
 - Symbols
 
-To avoid syntax conflicts in the terminal, generated passwords don't include symbols. To compensate for this, the length of the password word is set to 17, in order to obtain an entropy greater than 100 bits. 
-
 > **Password entropy** 
 > 
 > In information theory, entropy measures the degree of uncertainty (*or randomness*) associated with a random variable. The higher the entropy, the more unpredictable the variable. Applied to passwords, entropy quantifies the difficulty for an attacker to guess the password. The password entropy value, expressed in bits, is defined by the following formula :
@@ -300,10 +298,12 @@ python filecrypt.py clean
 > The clipboard has been erased
 ```
 
-## 'delete' command
-The command is used to **securely delete** a file from the current folder. To achieve this, before being removed by the `os.remove` method, the file is blindly encrypted several times (*without the keys being communicated*) with a new random key on each pass. After this, the file is truncated to its original size.
+> **Linux users** : Some Linux distributions may have restrictions on accessing the clipboard; several attempts not requiring automatic package installation will be made; if these fail, the user will be informed of the packages to install.
 
-> **Secure deletion**: Secure deletion most often means overwriting the contents of a file several times with random data before deleting it, making recovery much more difficult. This involves different procedures for Linux and Windows. While Linux has a special command for this kind of operation (`shred`), Windows requires the installation of a specific Microsoft utility (`sdelete`). To compensate for this and preserve the script's portability and lightness, the command uses the encryption functions already present in the script to make the file unreadable before deletion, even for the user.
+## 'delete' command
+The command is used to **securely delete** files/folders from the current folder. To achieve this, before being removed by the `os.remove` method, the file is blindly encrypted several times (*without the keys being communicated*) with a new random key on each pass. After this, the file is truncated to its original size.
+
+> **Secure deletion**: Secure deletion most often means overwriting the contents of a file several times with random data before deleting it, making recovery much more difficult. This involves different procedures for Linux and Windows. While Linux has a special command for this kind of operation (`shred`), Windows requires the installation of a specific Microsoft utility (`sdelete`). To compensate for this and preserve the script's portability and lightness, the command **uses the encryption functions already present in the script** to make the file unreadable before deletion, even for the user.
 
 > **Note**: All deletions must be explicitly confirmed by the user, but filekeys are treated in a special way: the user is asked to ensure that he has kept a copy of the key in a safe place.
 
@@ -341,6 +341,26 @@ python filecrypt.py delete image.jpg -s
 > Resizing...
 > Shuffling...
 > 'filekey.key' has been deleted.
+```
+Multiple deletion:
+```
+python filecrypt.py delete secret.txt image.jpg 
+> You are about to irreversibly delete the following targets:
+> [file]   secret.txt
+> [file]   image.jpg
+> Do you confirm this operation? (y/n): y # user input
+> 'secret.txt' has been deleted.
+> 'image.jpg' has been deleted.
+```
+Folder deletion:
+```
+python filecrypt.py delete my_folder
+> You are about to irreversibly delete the folder 'my_folder' and all its contents.
+> From: C:\Users\Bob\Code\my_folder
+> Files to delete: 3
+> Do you confirm this operation? (y/n): y # user input
+> Processing folder 'my_folder'...
+> Folder 'my_folder' has been deleted.
 ```
 
 ## 'zip' command
@@ -389,6 +409,15 @@ python filecrypt.py zip secret -d
 > File deletion 3/4
 > File deletion 4/4
 > 'secret' compressed successfully. 
+```
+Multiple zip
+```
+python filecrypt.py zip image.jpg my_folder
+> Zipping...
+> Added : image.jpg
+> Added: my_folder/two.txt
+> Added: my_folder/one.txt
+> 'archive.zip' created successfully.
 ```
 
 ## 'unzip' command

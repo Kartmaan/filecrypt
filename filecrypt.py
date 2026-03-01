@@ -18,8 +18,8 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2025-05-30
-Version : 1.0.9
+Date : 2026-01-03
+Version : 1.1.0
 """
 
 # ===================================================================
@@ -27,14 +27,15 @@ Version : 1.0.9
 # ===================================================================
 import argparse
 import base64
+import errno
 import getpass
 from datetime import datetime as dt
-from dateutil.relativedelta import relativedelta
-from os import remove, system, urandom, walk
+from os import chmod, remove, rmdir, urandom, walk
 from os.path import abspath, basename, dirname, exists, getsize
-from os.path import isdir, isfile, join, relpath, realpath, splitext
+from os.path import isdir, isfile, join, relpath, realpath
 import secrets
 from shutil import copyfile, rmtree
+import stat
 from string import ascii_letters, ascii_lowercase
 from string import ascii_uppercase, digits, punctuation
 import subprocess
@@ -84,6 +85,7 @@ try :
     from cryptography.fernet import Fernet, InvalidToken
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from dateutil.relativedelta import relativedelta
     import pyperclip
 except ImportError:
     choice = None
@@ -204,6 +206,30 @@ def in_current_folder(path: str) -> bool:
         return True
     else:
         return False
+
+def handle_remove_readonly(func: callable, path: str, exc: tuple[any, Exception, any]) -> None:
+    """Handles errors in deleting read-only files or folders, particularly under Windows.
+
+    This function is designed to be used as a callback via the 'onerror' parameter of shutil.rmtree(). 
+    It intercepts deletion failures due to insufficient permissions (EACCES), modifies the element's 
+    attributes to allow writing, and then retries the operation.
+
+    Args:
+        func: The function that failed.
+        path: The absolute or relative path of the file or folder to be deleted.
+        exc: A tuple containing information about the exception thrown (type, value, traceback), 
+        as returned by sys.exc_info().
+    
+    Raises:
+        Exception: Re-throws the original exception if the error is not related to an access 
+        problem (EACCES) or if the rights modification fails.
+    """
+    excvalue = exc[1]
+    if func in (rmdir, remove) and excvalue.errno == errno.EACCES:
+        chmod(path, stat.S_IWRITE) # We make the file/folder writable
+        func(path) # We'll try the deletion again.
+    else:
+        raise
 
 # ===================================================================
 #                          INITIAL CHECKS
@@ -431,11 +457,75 @@ def get_confidential_input(prompt: str) -> str:
 # ===================================================================
 #                          FEATURE FUNCTIONS
 # ===================================================================
-def clean():
-    """Deletes confidential data on the clipboard.
+def _clean_linux_native() -> bool:
+    """Attempts to clear the clipboard on Linux using native 
+    tools (xclip, xsel, wl-clipboard), without requiring pyperclip.
+
+    Tries each tool silently via subprocess. Stops and returns 
+    True as soon as one succeeds.
+
+    Returns:
+        bool: True if a native tool successfully cleared the 
+        clipboard, False if none were available.
     """
-    pyperclip.copy("")
-    print("The clipboard has been erased.")
+    # Each entry: (command, description)
+    # We pipe an empty string into each tool to clear the clipboard.
+    native_commands = [
+        ["xclip", "-selection", "clipboard"], # X11
+        ["xsel", "--clipboard", "--clear"], # X11
+        ["wl-copy", "--clear"], # Wayland
+    ]
+
+    for cmd in native_commands:
+        try:
+            result = subprocess.run(
+                cmd,
+                input=b"",
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            if result.returncode == 0:
+                return True
+        except FileNotFoundError:
+            # Tool not installed, try the next one
+            continue
+
+    return False
+
+def clean():
+    """Clears confidential data on the clipboard.
+
+    On all platforms, pyperclip is tried first. On Linux, if 
+    pyperclip raises PyperclipException (no copy/paste mechanism 
+    found), native clipboard tools are attempted as a fallback 
+    (xclip, xsel, wl-clipboard) — without requiring any 
+    installation. If none are available either, the user is 
+    informed of the situation and of the available options.
+    """
+    try:
+        pyperclip.copy("")
+        print("The clipboard has been erased.")
+
+    except pyperclip.PyperclipException:
+        # pyperclip has no mechanism available — try native Linux tools
+        if USER_OS == "linux":
+            if _clean_linux_native():
+                print("The clipboard has been erased.")
+            else:
+                # Nothing worked: inform the user clearly
+                print("Unable to clear the clipboard automatically.")
+                print("No clipboard utility was found on this system.")
+                print("")
+                print("You can install one of the following tools:")
+                print("  X11     : sudo apt-get install xclip")
+                print("            sudo apt-get install xsel")
+                print("  Wayland : sudo apt-get install wl-clipboard")
+                print("")
+                print("Alternatively, you can clear the clipboard manually")
+                print("by copying any innocuous text (e.g. a space).")
+        else:
+            # Non-Linux system: re-raise, this is unexpected
+            raise
 
 def read_filekey(filekey: str, return_value: bool = False) -> str | None:
     """Displays or returns the Base64 key of a filekey.
@@ -503,9 +593,9 @@ def create_filekey(file_name: str, key: str):
 def secure_delete(filename: str, encryption_passes: int = 2,
                   shuffle: bool = False, silent_mode: bool = False):
     """
-    Securely deletes a file from the current folder.
+    Securely deletes files/folders from the current folder.
 
-    Before its deletion, the file is blindly encrypted 
+    Before deletion, files are blindly encrypted 
     several times (without the key being communicated) 
     with a new random key for each pass. Finally, the 
     file size is truncated to coincide with the original 
@@ -546,6 +636,7 @@ def secure_delete(filename: str, encryption_passes: int = 2,
         Error during shuffle: OSError
     """
     is_filekey = False
+    is_folder = False
 
     if not isinstance(filename, str):
         print("filename must be a str.")
@@ -563,28 +654,34 @@ def secure_delete(filename: str, encryption_passes: int = 2,
     elif filename == SCRIPT_PATH or filename == SCRIPT_NAME:
         print("The script cannot delete itself.")
         sys.exit(1)
-    
+
+    # Early folder detection (before confirmation)
+    if isdir(filename):
+        is_folder = True
     # The file to be deleted is a filekey
     elif filename.endswith(FILEKEY_EXT):
         is_filekey = True
-    
-    else:
-        pass
-    
-    # Get original file size
-    original_file_size = getsize(filename)
 
     if not silent_mode:
-        # User confirmation
+        # User confirmation — single prompt, adapted to the target type
         choice = None
         while choice != "y" and choice != "n":
-            if is_filekey:
+            if is_folder:
+                # Count all files in the folder (recursively)
+                file_count = sum(len(files) for _, _, files in walk(filename))
+                print(f"You are about to irreversibly delete the "
+                      f"folder '{filename}' and all its contents.")
+                print(f"From: {abspath(filename)}")
+                print(f"Files to delete: {file_count}")
+            elif is_filekey:
                 print("You are about to irreversibly delete the " 
                     f"filekey '{filename}', if it's still "
                     "useful for decrypting a file, please "
                     "note its key in a safe place before "
                     "deleting it ('read' command).")
+                print(f"From: {abspath(filename)}")
             else:
+                original_file_size = getsize(filename)
                 print("You are about to irreversibly delete " 
                     f"the file '{filename}'.")
                 print(f"From: {abspath(filename)}")
@@ -601,6 +698,31 @@ def secure_delete(filename: str, encryption_passes: int = 2,
             else:
                 print("Invalid input.")
                 continue
+
+    # Get original file size (only needed for files, after confirmation)
+    if not is_folder:
+        original_file_size = getsize(filename)
+
+    # TARGET IS A FOLDER
+    if is_folder:
+        if not silent_mode:
+            print(f"Processing folder '{filename}'...")
+
+        # Securely delete each file inside the folder recursively
+        for root, dirs, files in walk(filename):
+            for file in files:
+                file_path = join(root, file)
+                secure_delete(file_path, encryption_passes, shuffle, silent_mode=True)
+        
+        # Once empty, remove the folder tree
+        try:
+            rmtree(filename, onerror=handle_remove_readonly)
+            if not silent_mode:
+                print(f"Folder '{filename}' has been deleted.")
+        except Exception as e:
+            print(f"Error removing folder '{filename}': {e}")
+        
+        return  # End of function for folder case
     
     if not silent_mode:
         if encryption_passes > 0:
@@ -679,144 +801,103 @@ def secure_delete(filename: str, encryption_passes: int = 2,
         print(f"'{filename}' has been deleted.")
 
 @safety_check
-def zip_file(target_to_zip: str, delete: bool = False):
+def zip_files(targets: list, delete: bool = False):
     """
-    Compresses a file or folder into a ZIP archive.
+    Compresses files or folders into a ZIP archive.
 
     Args:
-        target_to_zip (str): File/folder to compress.
-        delete (bool): Deletes the original file/folder.
+        zip_files (list): List of targets
+        delete (bool): Delete the original files after creating the zip archive.
     """
-    
-    if not in_current_folder(target_to_zip):
-        print(f"{target_to_zip} not in the current folder.")
-        sys.exit(1)
-    
-    if target_to_zip == SCRIPT_PATH or target_to_zip == SCRIPT_NAME:
-        print("The script cannot zip itself.")
-        sys.exit(1)
-    
-    # File name without extension
-    base_filename = splitext(basename(target_to_zip))[0]
-    zip_filename = base_filename + ".zip" # Zip file name
+    # Preliminary check of all files
+    for target in targets:
+        if not in_current_folder(target):
+            print(f"{target} not in the current folder.")
+            sys.exit(1)
+        if target == SCRIPT_PATH or target == SCRIPT_NAME:
+            print("The script cannot zip itself.")
+            sys.exit(1)
 
-    # Same zip file name in the current folder
+    zip_filename = "archive.zip"
+
+    # If archive.zip already exist, we request a new name
     if exists(zip_filename):
-        print(f"{zip_filename} already exists.")
-        sys.exit(1)
-    
-    # User confirmation if  the original file/folder 
-    # will be deleted after compression.
-    if delete:
-        choice = None
-        while choice != 'y' and choice != 'n':
-            if isdir(target_to_zip):
-                print("Compression will delete the "
-                    f"'{target_to_zip}' folder.")
-                print(f"From: {abspath(target_to_zip)}")
-            elif isfile(target_to_zip):
-                print("Compression will delete the "
-                    f"'{target_to_zip}' file.")
-                print(f"From: {abspath(target_to_zip)}")
-            else:
-                print(f"Path: '{target_to_zip}' is "
-                    "neither a file nor a folder.")
-                sys.exit(1)
+        print(f"'{zip_filename}' already exists.")
+        while True:
+            # Naming without extension
+            custom_name = input("Enter a name for the archive (without extension): ").strip()
             
-            choice = input("Do you confirm the operation ? (y/n): ")
-            choice = choice.lower()
-
-            if choice == 'y':
-                pass
-            elif choice == 'n':
-                print("Cancellation...")
-                sys.exit(0)
-            else:
-                print("Invalid input.")
+            if not custom_name:
+                print("Name cannot be empty.")
                 continue
-    
-    print("Zipping...")
-    # Open a zip archive in write mode
-    # The 'deflated' algorithm is used to compress the 
-    # target without loss.
-    with ZipFile(zip_filename, 'w', ZIP_DEFLATED) as zipf:
-        # Target is a folder.
-        if isdir(target_to_zip):
-            total_files = 0
-            # The walk method recursively traverses a 
-            # directory and all its subdirectories. It
-            # generates a sequence of tuples, each 
-            # containing information about a visited 
-            # directory.
-            for root, dirs, files in walk(target_to_zip):
-                for file in files:
-                    file_path = join(root, file)
-                    total_files += 1
-                    # Adds the file to the archive with a 
-                    # relative path
-                    arch_name = join(basename(target_to_zip), relpath(file_path, start=target_to_zip))
-                    zipf.write(file_path, arcname=arch_name)
-                    print(f"Added: {file_path}")
+            
+            zip_filename = custom_name + ".zip"
+            
+            # We're also checking if this new name is available.
+            if exists(zip_filename):
+                print(f"'{zip_filename}' also exists. Please choose another name.")
+            else:
+                break
 
-            if delete:
-                print("Deleting files...")
-                deleted_files = 0
+    # User confirmation for deletion
+    if delete:
+        print("Compression will delete the following targets:")
+        for target in targets:
+            print(f"- {target}")
+        
+        choice = input("Do you confirm the operation ? (y/n): ").lower()
+        if choice != 'y':
+            print("Cancellation...")
+            sys.exit(0)
+
+    print("Zipping...")
+    with ZipFile(zip_filename, 'w', ZIP_DEFLATED) as zipf:
+        for target_to_zip in targets:
+            # Targer is a folder
+            if isdir(target_to_zip):
                 for root, dirs, files in walk(target_to_zip):
                     for file in files:
                         file_path = join(root, file)
-                        secure_delete(file_path, silent_mode = True)
-                        deleted_files += 1
-                        print(f"File deletion {deleted_files}/{total_files}")
+                        arch_name = join(basename(target_to_zip), relpath(file_path, start=target_to_zip))
+                        zipf.write(file_path, arcname=arch_name)
+                        print(f"Added: {file_path}")
+                
+                if delete:
+                    # Recursive deletion logic
+                    total_files = sum([len(files) for r, d, files in walk(target_to_zip)])
+                    print(f"Deleting files in {target_to_zip}...")
+                    deleted_files = 0
+                    for root, dirs, files in walk(target_to_zip):
+                        for file in files:
+                            secure_delete(join(root, file), silent_mode=True)
+                            deleted_files += 1
+                            print(f"File deletion {deleted_files}/{total_files}")
+                    
+                    # Once the files are deleted, the empty folder is deleted. 
+                    # We use `onerror` to handle stubborn cases in Windows.
+                    try:
+                        rmtree(target_to_zip, ignore_errors=False, onerror=handle_remove_readonly)
+                        print(f"Folder {target_to_zip} removed.")
+                    except Exception as e:
+                        print(f"Could not remove folder {target_to_zip}: {e}")
 
-        # Target is a file
-        elif isfile(target_to_zip):
-            arch_name = basename(target_to_zip)
-            zipf.write(target_to_zip, arcname=arch_name)
-            print(f"Added : {target_to_zip}")
-
-            if delete:
-                secure_delete(target_to_zip, silent_mode = True)
-                print(f"{target_to_zip} has been securely deleted.")
-        
-        # Error: neither a file nor a folder.
-        else:
-            print(f"Path: '{target_to_zip}' is neither a file nor a folder.")
-            sys.exit(1)
-
-    # Archive is now created and closed. At this point, 
-    # if the target is a folder, the original folder is 
-    # still present in the script's current folder, 
-    # emptied of all its files. Deleting this folder and 
-    # any sub-folders (all empty) may, on some Windows 
-    # systems, raise a 'PermissionError' exception. 
-    # To avoid this, we run specific commands for Windows 
-    # and Linux to force the deletion of the folder.
-    if isdir(target_to_zip) and delete:
-        try:
-            if USER_OS == "win32":
-                try:
-                    rmtree(target_to_zip)
-                except PermissionError:
-                    system(f'rmdir /S /Q "{target_to_zip}"')
+            # Target is a file
+            elif isfile(target_to_zip):
+                zipf.write(target_to_zip, arcname=basename(target_to_zip))
+                print(f"Added : {target_to_zip}")
+                
+                if delete:
+                    secure_delete(target_to_zip, silent_mode=True)
             
-            # Since a check is made at the start of the 
-            # script to verify whether the OS is win32, 
-            # linux or darwin. We assume that user is 
-            # under Linux or macOS.
             else:
-                try:
-                    rmtree(target_to_zip)
-                except PermissionError:
-                    system(f'rm -rf "{target_to_zip}"')
-        except Exception:
-            print("PermissionError occurred")
-    
-    print(f"'{target_to_zip}' compressed successfully.")
+                print(f"Skipping {target_to_zip}: neither a file nor a folder.")
+
+    print(f"'{zip_filename}' created successfully.")
             
 @safety_check
 def unzip_file(arch_name: str):
     """
-    Unzip an archive.
+    Unzip a zip archive.
 
     Args:
         arch_name (str): Name of the compressed file
@@ -1365,10 +1446,6 @@ def decrypt(filename: str,
         Invalid salt: sys.exit(1)
         Invalid token: sys.exit(1)
     """
-    """ if in_danger_zone(filename):
-        print("Error: the file is in a critical area of "
-              "the system")
-        sys.exit(1) """
     
     if not in_current_folder(filename):
         print(f"{filename} not in the current folder.")
@@ -1514,21 +1591,29 @@ def main():
         help="Securely deletes a file from the current folder"
     )
     parser_delete.add_argument(
-        "filename",
-        help="The file name to delete"
+        "filenames",
+        nargs='+',
+        help="The file name(s) to delete (one or more)"
     )
     parser_delete.add_argument("-s", "--shuffle", default= False, 
         help="Shuffle file bytes before deletion", action="store_true")
 
     # - - - - - - Command : zip
     parser_zip = subparsers.add_parser(
-        "zip", help="Zip a file/folder"
+    "zip",
+    help="Zip files/folders"
     )
+    
     parser_zip.add_argument(
-        "target", help="File or folder to zip"
+        "targets", 
+        nargs='+', 
+        help="Files or folders to zip"
     )
+
     parser_zip.add_argument(
-        "-d", "--delete", default= False, action="store_true",
+        "-d", "--delete",
+        default=False,
+        action="store_true",
         help="Deletes original files after archiving"
     )
 
@@ -1634,16 +1719,35 @@ def main():
         create_filekey(args.filename, key)
     
     elif args.command == "delete":
-        if args.shuffle:
-            secure_delete(args.filename, shuffle=True)
+        # Single file/folder : standard behaviour (confirmation inside secure_delete)
+        if len(args.filenames) == 1:
+            secure_delete(args.filenames[0], shuffle=args.shuffle)
+
+        # Multiple targets : one global confirmation before processing
         else:
-            secure_delete(args.filename)
+            print("You are about to irreversibly delete the following targets:")
+            for filename in args.filenames:
+                if isdir(filename):
+                    file_count = sum(len(files) for _, _, files in walk(filename))
+                    print(f"  [folder] {filename}/ ({file_count} file(s))")
+                else:
+                    print(f"  [file]   {filename}")
+
+            choice = None
+            while choice != "y" and choice != "n":
+                choice = input("Do you confirm this operation? (y/n): ").lower()
+                if choice == "n":
+                    print("Exiting...")
+                    sys.exit(0)
+                elif choice != "y":
+                    print("Invalid input.")
+
+            for filename in args.filenames:
+                secure_delete(filename, shuffle=args.shuffle, silent_mode=True)
+                print(f"  '{filename}' has been deleted.")
     
     elif args.command == "zip":
-        if args.delete:
-            zip_file(args.target, delete=True)
-        else:
-            zip_file(args.target)
+        zip_files(args.targets, args.delete)
     
     elif args.command == "unzip":
         unzip_file(args.arcname)
