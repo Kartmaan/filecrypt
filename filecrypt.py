@@ -1630,6 +1630,92 @@ def decrypt(filename: str,
 
     print(f"---- Operation completed successfully ----")
 
+def verify(filename: str,
+           filekey_name: Union[str, None] = None,
+           psw: Union[str, None] = None,
+           salt: Union[str, None] = None) -> None:
+    """Verifies that a filekey or a password/salt pair is compatible
+    with an encrypted file, without writing anything to disk.
+
+    The file is read and decryption is attempted entirely in memory.
+    The decrypted result is immediately discarded — the file on disk
+    is never modified. This lets the user confirm that a key is valid
+    before a full decrypt, or before safely deleting a filekey.
+
+    Mirrors decrypt() in its two modes (filekey / password+salt)
+    but is strictly read-only.
+
+    Args:
+        filename (str): Name of the encrypted file to check.
+
+        filekey_name (str | None): Filekey to verify against
+        (with its .key extension). Mutually exclusive with psw.
+        Defaults to None.
+
+        psw (str | None): Password to verify against.
+        Mutually exclusive with filekey_name. Defaults to None.
+
+        salt (str | None): Salt paired with the password.
+        Defaults to None.
+
+    Error:
+        File not found     : sys.exit(1)
+        Invalid filekey    : sys.exit(1)
+        Invalid psw / salt : sys.exit(1)
+        Wrong key/password : informs user, sys.exit(1)
+    """
+    if not in_current_folder(filename):
+        print(f"{filename} not in the current folder.")
+        sys.exit(1)
+
+    if not exists(filename):
+        print(f"Error: '{filename}' not found in the current folder.")
+        sys.exit(1)
+
+    # Build the Fernet object — same logic as decrypt(), no disk write
+    if psw is None:
+        # ── Filekey mode ─────────────────────────────────────────────
+        if not valid_filekey(filekey_name):
+            sys.exit(1)
+
+        try:
+            with open(filekey_name, 'rb') as fk:
+                key = fk.read()
+        except FileNotFoundError:
+            print(f"Error: filekey '{filekey_name}' not found.")
+            sys.exit(1)
+
+        f = Fernet(key)
+        key_label = f"Filekey '{filekey_name}'"
+
+    else:
+        # ── Password + salt mode ─────────────────────────────────────
+        if not valid_password(psw) or not valid_salt(salt):
+            sys.exit(1)
+
+        f = psw_derivation(psw, salt)
+        key_label = "The given password and salt"
+
+    # Read the encrypted file
+    try:
+        with open(filename, 'rb') as ef:
+            encrypted = ef.read()
+    except FileNotFoundError:
+        print(f"Error: '{filename}' not found in the current folder.")
+        sys.exit(1)
+
+    # Attempt in-memory decryption — result is intentionally discarded
+    try:
+        f.decrypt(encrypted)
+        print(f"\u2713 Verification successful.")
+        print(f"  {key_label} can decrypt '{filename}'.")
+    except InvalidToken:
+        print(f"\u2717 Verification failed.")
+        print(f"  {key_label} cannot decrypt '{filename}'.")
+        print("  The key may be wrong, or the file may not be "
+              "a valid Fernet token.")
+        sys.exit(1)
+
 # ===================================================================
 #                             ARGPARSER
 # ===================================================================
@@ -1813,7 +1899,33 @@ def main():
     parser_decrypt.add_argument("-s", "--salt", default= None,
         help= "Decrypts with a given salt value", action="store_true")
 
-    # - - - - - - Call logics - - - - - -
+    # - - - - - - Command : verify
+    parser_verify = subparsers.add_parser(
+        "verify",
+        help="Verify that a key/password can decrypt a file "
+             "(read-only, nothing is written to disk)"
+    )
+    parser_verify.add_argument(
+        "filename",
+        help="Encrypted file to verify (with its extension)"
+    )
+    parser_verify.add_argument(
+        "filekey", nargs="?",
+        help="Filekey to verify against (with its .key extension). "
+             "Omit if using --password."
+    )
+    parser_verify.add_argument(
+        "-p", "--password",
+        default=None, action="store_true",
+        help="Verify using a password instead of a filekey"
+    )
+    parser_verify.add_argument(
+        "-s", "--salt",
+        default=None, action="store_true",
+        help="Provide a custom salt alongside the password"
+    )
+
+        # - - - - - - Call logics - - - - - -
     args = parser.parse_args()
 
     if args.command == "install":
@@ -1952,6 +2064,32 @@ def main():
         # File must be decrypted with a filekey
         else:
             decrypt(args.filename, args.filekey)
+
+    elif args.command == "verify":
+        password = None
+        salt = None
+
+        # Conflict : both filekey and --password provided
+        if args.filekey and args.password:
+            print("ERROR : You must provide either a 'filekey' or "
+                  "'--password', not both.")
+            sys.exit(1)
+
+        # Neither provided
+        if not args.filekey and not args.password:
+            print("ERROR : You must provide either a 'filekey' or "
+                  "'--password'.")
+            sys.exit(1)
+
+        # Password + salt mode
+        if args.password:
+            password = get_confidential_input("Password: ")
+            salt = get_confidential_input("Salt: ")
+            verify(args.filename, psw=password, salt=salt)
+
+        # Filekey mode
+        else:
+            verify(args.filename, filekey_name=args.filekey)
 
     else:
         print("ERROR : Unknown argument.")
