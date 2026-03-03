@@ -2,42 +2,20 @@
   - [Compatibility](#compatibility)
   - [How to use it](#how-to-use-it)
 - [Commands](#commands)
-  - ['encrypt' command](#encrypt-command)
-    - [overwrite option](#overwrite-option)
-    - [Examples](#examples)
-      - [**Method 1** : By generating a random filekey in the current folder](#method-1--by-generating-a-random-filekey-in-the-current-folder)
-      - [**Method 2** : By using a filekey already present in the current folder](#method-2--by-using-a-filekey-already-present-in-the-current-folder)
-      - [**Method 3** : By using a password and optionally a salt value](#method-3--by-using-a-password-and-optionally-a-salt-value)
-        - [Without salt](#without-salt)
-        - [With salt](#with-salt)
-  - ['decrypt' command](#decrypt-command)
-    - [Examples](#examples-1)
-      - [**Method 1** : By using a filekey present in the current folder](#method-1--by-using-a-filekey-present-in-the-current-folder)
-      - [**Method 2** : By using a password and a salt](#method-2--by-using-a-password-and-a-salt)
-  - ['install' command](#install-command)
-    - [Example](#example)
-  - ['salt' command](#salt-command)
-    - [Example](#example-1)
-  - ['psw' command](#psw-command)
-    - [Example](#example-2)
-  - ['read' command](#read-command)
-    - [Example](#example-3)
-  - ['create' command](#create-command)
-    - [Example](#example-4)
-  - ['timestamp' command](#timestamp-command)
-    - [Example](#example-5)
-      - [Method 1 : By using a file encrypted with a filekey](#method-1--by-using-a-file-encrypted-with-a-filekey)
-      - [Method 2 : By using a file encrypted with a password and a salt](#method-2--by-using-a-file-encrypted-with-a-password-and-a-salt)
-  - ['clean' command](#clean-command)
-    - [Example](#example-6)
-  - ['delete' command](#delete-command)
-    - ['shuffle' option](#shuffle-option)
-    - [Examples](#examples-2)
-  - ['zip' command](#zip-command)
-    - ['delete' option](#delete-option)
-    - [Examples](#examples-3)
-  - ['unzip' command](#unzip-command)
-    - [Example](#example-7)
+  - [`encrypt` : Encrypt a file](#encrypt--encrypt-a-file)
+  - [`decrypt` : Decrypt a file](#decrypt--decrypt-a-file)
+  - [`install` : Install the required modules](#install--install-the-required-modules)
+  - [`salt` : Generate a salt](#salt--generate-a-salt)
+  - [`psw` : Generate a secure password](#psw--generate-a-secure-password)
+  - [`read` : Display the key of a filekey](#read--display-the-key-of-a-filekey)
+  - [`create` : Create a filekey](#create--create-a-filekey)
+  - [`timestamp` : Displays the timestamp of an encrypted file](#timestamp--displays-the-timestamp-of-an-encrypted-file)
+  - [`copykey` : Copy a filekey's Base64 key to the clipboard](#copykey--copy-a-filekeys-base64-key-to-the-clipboard)
+  - [`verify` : Verify that a key/password can decrypt a file](#verify--verify-that-a-keypassword-can-decrypt-a-file)
+  - [`clean` : Clear the clipboard](#clean--clear-the-clipboard)
+  - [`delete` : Delete files/folders securely](#delete--delete-filesfolders-securely)
+  - [`zip` : Zip files/folders](#zip--zip-filesfolders)
+  - [`unzip` : Unzip files/folders](#unzip--unzip-filesfolders)
 - [Some technical details](#some-technical-details)
   - [What's Fernet ?](#whats-fernet-)
   - [What level of security?](#what-level-of-security)
@@ -68,7 +46,7 @@ To use this script, simply :
 For a reminder of commands in the script: `python filecrypt.py --help` 
 
 # Commands
-## 'encrypt' command
+## `encrypt` : Encrypt a file
 Encrypts a file present in the current folder using three different methods :
 1. By generating a random filekey in the current folder
 2. By using a valid filekey already present in the current folder
@@ -76,12 +54,13 @@ Encrypts a file present in the current folder using three different methods :
 
 These three methods are mutually exclusive, but **must** include the name of the file to be encrypted and the `overwrite` option.
 
-### overwrite option
+**overwrite option**
 - `-ow` / `--overwrite` : the file will be overwritten by its encrypted version (*in the case of an image file for example, it will therefore become corrupted*)
 - `-c` / `--copy` : The plaintext file will be copied before being overwritten by its encrypted version.
 
-### Examples
-#### **Method 1** : By generating a random filekey in the current folder
+**Examples**
+
+**Method 1** : By generating a random filekey in the current folder
 Let's suppose we want to encrypt a file named `psw.txt` by overwriting it :
 
 `python filecrypt.py encrypt psw.txt -ow`
@@ -96,18 +75,19 @@ A filekey named `filekey.key` will be created in the current folder.
 
 > **Note 2**: The filekey **doesn't contain the ciphertext but only the secret key**. It should be kept in a safe place.
 
-#### **Method 2** : By using a filekey already present in the current folder
+**Method 2** : By using a filekey already present in the current folder
 The `-f`/`--filekey` option lets us specify the filekey to be used
 
 `python filecrypt.py encrypt psw.txt -f filekey.key -ow`
 
-#### **Method 3** : By using a password and optionally a salt value
+**Method 3** : By using a password and optionally a salt value
 
 Fernet can also generate keys from : 
 - a password : `-p` / `--password`
 - and a salt value : `-s` / `--salt`
 
-##### Without salt
+**Without salt**
+
 When no salt value is entered, the script will automatically generate one in the form of 16 random bytes (generated by `os.urandom()`). This value will be encoded in base64 urlsafe so that it can be easily displayed to the user and kept in a safe place.
 
 > **Caution**: It's crutial to keep both the password AND the salt in a safe place. If the file is encrypted again without specifying a salt value, a new one will be randomly generated, making the old one obsolete. If the user attempts to encrypt a file in overwrite mode without specifying a salt, a confirmation message will be displayed.  
@@ -131,7 +111,8 @@ When the time comes to decrypt the file, the password AND this salt will be requ
 
 > **Note**: When the user attempts overwriting encryption with a password and without entering a salt (random generation), a confirmation message is displayed to the user.
 
-##### With salt
+**With salt**
+
 Now let's say we want to encrypt the same file, but this time with a salt we already own. 
 
 `python filecrypt.py encrypt image.jpg -p -s -ow`
@@ -146,13 +127,51 @@ And a second one for the salt :
 
 > **Note** : It's recommended to use salt values generated directly from this script to ensure compliance with standardization. For example, using the `salt` command.
 
-## 'decrypt' command
+**copysecret option**
+
+The `-cs`/`--copysecret` option automatically copies the Base64 secret key contained in the generated filekey to the clipboard. If the file was password-encrypted, then the salt will be copied to the clipboard.
+
+With the method generating a filekey:
+```
+> python filecrypt.py encrypt image.jpg -ow -cs
+---- Encryption of image.jpg ----
+Filekey generation (filekey.key)...
+Generated filekey reading...
+image.jpg reading...
+Data encryption...
+Encrypted data writing...
+---- Operation completed successfully ----
+A keyfile.key file has been generated in the current folder, please keep it safe.
+Key from 'filekey.key' copied to clipboard.
+Don't forget to clean the clipboard after use ('clean' command).
+```
+
+Using the password method:
+```
+> python filecrypt.py encrypt image.jpg -p -ow -cs
+Password: 
+---- Encryption of image.jpg ----
+CAUTION: You are about to encrypt image.jpg by overwriting it with a new random salt. The new salt will be displayed after confirmation and must be noted and kept safe.
+Do you confirm this operation? (y/n): y
+- - - - SALT (KEEP IT SAFE) - - - - -
+lYBU7eJXgCDp7vKGW_BjXg==
+- - - - - - - - - - - - - - - - - - -
+image.jpg reading...
+Data encryption...
+Encrypted data writing...
+---- Operation completed successfully ----
+Salt copied to clipboard.
+Don't forget to clean the clipboard after use ('clean' command).
+```
+
+## `decrypt` : Decrypt a file
 Decrypts a file present in the current folder using two different methods :
 1. By using a filekey present in the current folder
 2. By using a known password and a salt
 
-### Examples
-#### **Method 1** : By using a filekey present in the current folder
+**Examples**
+
+**Method 1** : By using a filekey present in the current folder
 
 Decryption of a file named `psw.txt` using a filkey named `filekey.key` present in the current folder :
 
@@ -160,7 +179,7 @@ Decryption of a file named `psw.txt` using a filkey named `filekey.key` present 
 
 > **Note** : For standardization reasons and to avoid unfortunate modifications to a .txt format, all filekeys must be in `.key`.
 
-#### **Method 2** : By using a password and a salt
+**Method 2** : By using a password and a salt
 This method is used to decrypt a file that has been encrypted using a password and a salt value known to the user.
 
 Here we decrypt the file `image.jpg`, encrypted in our example in the 'encrypt command' section with the password `notastrongpsw` and the salt `zhWYYqNubPOb0aH_AAGV3Q==` :
@@ -177,24 +196,26 @@ And a second one for the salt :
 
 > **Note**: Unlike the `encrypt` command, where the `--salt` option was optional for encrypting with a password, here, the `--password` AND `--salt` options must both be set.
 
-## 'install' command
+## `install` : Install the required modules
 Installs all non built-in modules and their dependencies via the pip command.
 
 > Note: When the script is launched, if the import of a non built-in module encounters an ImportError, a request is made to the user to automatically install the missing modules.
 
-### Example
+**Example**
+
 `python filecrypt.py install`
 
-## 'salt' command
+## `salt` : Generate a salt
 Generates and print a b64-urlsafe salt value that can be used to encrypt files.
 
-### Example
+**Example**
+
 ```
 python filecrypt.py salt
 > rxOvfSGn14oB3bBqz8lfvQ==
 ```
 
-## 'psw' command
+## `psw` : Generate a secure password
 Generates a strong password and print it, so that it can be used to encrypt files. By default, the password is 12 characters long, made up of : 
 - Upper letters
 - Lower letters 
@@ -221,27 +242,27 @@ Generates a strong password and print it, so that it can be used to encrypt file
 >
 > The passwords generated by the command will therefore have an entropy of slightly more than **111 bits**, which satisfies most safety recommendations.
 
-### Example
+**Example**
 ```
 python filecrypt.py psw
 > rv1rX\L!4m=v=[u0c
 ```
 
-## 'read' command
+## `read` : Display the key of a filekey
 Displays the Base64 code present in a filekey
 
-### Example
+**Example**
 ```
 python filecrypt.py read filekey.key
 > MWpYeBrqiaVVZIOZrJFntiF2K0_ZYZZ2eCxBQ1_CuAI=
 ```
 
-## 'create' command
+## `create` : Create a filekey
 Creates a filekey in the current folder by providing the desired name and the key (*base64 urlsafe*). 
 
 **Practical example**: after encrypting a file, for security reasons we don't want to keep the filekey on the computer, so we can extract its key using the `read` command, copy/paste it somewhere else (or even copy it onto paper) and delete the filekey. When we want to decrypt this file, the filekey can be recreated using the `create` command.
 
-### Example
+**Example**
 Create a file named 'secretkey' :
 
 `python filecrypt.py create secretkey`
@@ -254,20 +275,20 @@ The command creates a filekey in the current folder, named `secret.key`, with th
 
 >**Note** : You don't need to specify the filekey extension, as it will automatically be saved in .key format for standardization reasons. Only the name is required.
 
-## 'timestamp' command
+## `timestamp` : Displays the timestamp of an encrypted file
 This command extracts the timestamp of a Fernet token (*from an encrypted file*), i.e. the timestamp at which the file was encrypted. To do this, the command needs the name of the encrypted file in the current folder as well as the filekey used to encrypt it or the password and salt.
 
-### Example
+**Example**
 Here are examples of the two different methods: 
 1. By using a file encrypted with a filekey
 2. By using a file encrypted with a password and a salt
 
 Here, we want to extract the timestamp from an encrypted file named `image.jpg`
 
-#### Method 1 : By using a file encrypted with a filekey
+**Method 1** : By using a file encrypted with a filekey
 `python filecrypt.py timestamp image.jpg -f filekey.key`
 
-#### Method 2 : By using a file encrypted with a password and a salt
+**Method 2** : By using a file encrypted with a password and a salt
 `python filecrypt.py timestamp image.jpg -p`
 
 > **Note**: It's not necessary to add the `--salt` / `-s` option, since if the `--password` option is enabled, a salt value will always be requested. 
@@ -289,10 +310,42 @@ Timestamp : 1733074559
 - - - - - - - - - - - - - - - - - - - -
 ```
 
-## 'clean' command
+## `copykey` : Copy a filekey's Base64 key to the clipboard
+Allows copying the base64 key of a filekey located in the current folder to the clipboard. This can be useful for retrieving the secret key without displaying it directly on the terminal.
+
+**Exemple**
+
+```
+> python filecrypt.py copykey filekey.key
+Key copied to clipboard.
+Don't forget to clean the clipboard after use ('clean' command).
+```
+
+## `verify` : Verify that a key/password can decrypt a file
+The command checks if a filekey or a password + salt can decrypt a file without writing to the disk.
+
+**Example**
+
+With a filekey:
+```
+> python filecrypt.py verify encrypted_image.jpg filekey.key
+✓ Verification successful.
+Filekey 'filekey.key' can decrypt 'image.jpg'.
+```
+
+With a password + salt
+```
+> python filecrypt.py verify encrypted_image.jpg -p
+Password:
+Salt:
+✓ Verification successful.
+The given password and salt can decrypt 'image.jpg'.
+```
+
+## `clean` : Clear the clipboard
 The command replaces the current clipboard with an empty entry to reduce the risk of confidential data such as passwords or salt values leaking out, as the user may eventually have to copy/paste these values.
 
-### Example
+**Example**
 ```
 python filecrypt.py clean
 > The clipboard has been erased
@@ -300,7 +353,7 @@ python filecrypt.py clean
 
 > **Linux users** : Some Linux distributions may have restrictions on accessing the clipboard; several attempts not requiring automatic package installation will be made; if these fail, the user will be informed of the packages to install.
 
-## 'delete' command
+## `delete` : Delete files/folders securely
 The command is used to **securely delete** files/folders from the current folder. To achieve this, before being removed by the `os.remove` method, the file is blindly encrypted several times (*without the keys being communicated*) with a new random key on each pass. After this, the file is truncated to its original size.
 
 > **Secure deletion**: Secure deletion most often means overwriting the contents of a file several times with random data before deleting it, making recovery much more difficult. This involves different procedures for Linux and Windows. While Linux has a special command for this kind of operation (`shred`), Windows requires the installation of a specific Microsoft utility (`sdelete`). To compensate for this and preserve the script's portability and lightness, the command **uses the encryption functions already present in the script** to make the file unreadable before deletion, even for the user.
@@ -309,12 +362,13 @@ The command is used to **securely delete** files/folders from the current folder
 
 > **Encryption passes**: The file size will temporarily increase with each encryption pass. Even if the file returns to its initial size after the truncation phase, setting the number of passes to 2 seems a more than acceptable compromise, particularly for large files.
 
-### 'shuffle' option
+**shuffle option**
+
 Optionally, file bytes can also be shuffled just before the deletion by activating the `-s` / `--shuffle` option.
 
 > **Note**: The operation can be long for large files (approx. 2 min on a standard PC for a 100MB file).
 
-### Examples
+**Examples**
 Let's suppose we want to delete the file 'image.jpg' in the current folder :
 ```
 python filecrypt.py delete image.jpg
@@ -363,13 +417,14 @@ python filecrypt.py delete my_folder
 > Folder 'my_folder' has been deleted.
 ```
 
-## 'zip' command
+## `zip` : Zip files/folders
 The command is used to compress files or folders in the current folder into `.zip` format. The command may be useful if the user wants to encrypt an entire folder.
 
-### 'delete' option
+**delete option**
+
 The `-d` / `--delete` option securely deletes the original file/folder after compression, after user confirmation.
 
-### Examples
+**Examples**
 Let's suppose we want to zip the file 'image.jpg'.
 ```
 python filecrypt.py zip image.jpg
@@ -420,10 +475,11 @@ python filecrypt.py zip image.jpg my_folder
 > 'archive.zip' created successfully.
 ```
 
-## 'unzip' command
+## `unzip` : Unzip files/folders
 The command unzips zip archives in the current folder.
 
-### Example
+**Example**
+
 Unzipping the 'secret.zip' archive :
 ```
 python filecrypt.py unzip secret.zip

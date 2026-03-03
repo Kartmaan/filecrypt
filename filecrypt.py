@@ -18,8 +18,8 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2026-01-03
-Version : 1.1.0
+Date : 2026-03-03
+Version : 1.1.1
 """
 
 # ===================================================================
@@ -513,18 +513,101 @@ def clean():
                 print("The clipboard has been erased.")
             else:
                 # Nothing worked: inform the user clearly
-                print("Unable to clear the clipboard automatically.")
-                print("No clipboard utility was found on this system.")
-                print("")
-                print("You can install one of the following tools:")
-                print("  X11     : sudo apt-get install xclip")
-                print("            sudo apt-get install xsel")
-                print("  Wayland : sudo apt-get install wl-clipboard")
+                _clipboard_no_mechanism_msg()
                 print("")
                 print("Alternatively, you can clear the clipboard manually")
                 print("by copying any innocuous text (e.g. a space).")
         else:
             # Non-Linux system: re-raise, this is unexpected
+            raise
+
+def _copy_linux_native(text: str) -> bool:
+    """Attempts to copy text to the clipboard on Linux using native
+    tools (xclip, xsel, wl-clipboard), without requiring pyperclip.
+
+    Mirrors _clean_linux_native() but pipes the given text instead
+    of an empty string, covering both X11 and Wayland environments.
+
+    Args:
+        text (str): The text to copy to the clipboard.
+
+    Returns:
+        bool: True if a native tool successfully copied the text,
+        False if none were available.
+    """
+    native_commands = [
+        ["xclip", "-selection", "clipboard"], # X11
+        ["xsel",  "--clipboard", "--input"],   # X11
+        ["wl-copy"],                           # Wayland
+    ]
+
+    for cmd in native_commands:
+        try:
+            result = subprocess.run(
+                cmd,
+                input=text.encode(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            if result.returncode == 0:
+                return True
+        except FileNotFoundError:
+            # Tool not installed, try the next one
+            continue
+
+    return False
+
+def _clipboard_no_mechanism_msg() -> None:
+    """Prints a standardised message when no clipboard mechanism
+    is available on the current Linux system.
+
+    Factored out to keep copy_filekey() and clean() DRY.
+    """
+    print("Unable to access the clipboard automatically.")
+    print("No clipboard utility was found on this system.")
+    print("")
+    print("You can install one of the following tools:")
+    print("  X11     : sudo apt-get install xclip")
+    print("            sudo apt-get install xsel")
+    print("  Wayland : sudo apt-get install wl-clipboard")
+
+def copy_filekey(filekey: str):
+    """Copies the Base64 key stored in a filekey to the clipboard.
+
+    On all platforms, pyperclip is tried first. On Linux, if
+    pyperclip raises PyperclipException (no copy/paste mechanism
+    found), native clipboard tools are attempted as a fallback
+    (xclip, xsel, wl-clipboard) — without requiring any
+    installation. If none are available either, the user is
+    informed of the situation and of the available options.
+
+    Args:
+        filekey (str): Filekey name (with extension).
+
+    Error:
+        Invalid filekey : sys.exit(1)
+        No clipboard mechanism available : informs the user
+    """
+    key = read_filekey(filekey, return_value=True)
+
+    if key is None:
+        sys.exit(1)
+
+    try:
+        pyperclip.copy(key)
+        print("Key copied to clipboard.")
+        print("Don't forget to clean the clipboard after use "
+              "('clean' command).")
+
+    except pyperclip.PyperclipException:
+        if USER_OS == "linux":
+            if _copy_linux_native(key):
+                print("Key copied to clipboard.")
+                print("Don't forget to clean the clipboard after use "
+                      "('clean' command).")
+            else:
+                _clipboard_no_mechanism_msg()
+        else:
             raise
 
 def read_filekey(filekey: str, return_value: bool = False) -> str | None:
@@ -1148,7 +1231,8 @@ def psw_gen(length=17, include_uppercase=True,
 
     print(password)
 
-def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
+def psw_derivation(psw: str, salt: Union[str, None] = None,
+                   return_salt: bool = False) -> Union[Fernet, tuple]:
     """Creates a Fernet object with a given password and 
     a salt value.
 
@@ -1169,8 +1253,15 @@ def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
         salt (str | None): Given salt value.
         Defaults to None. (optional)
 
+        return_salt (bool): If True, returns a (Fernet, salt_b64)
+        tuple instead of just the Fernet object. Useful when the
+        caller needs the generated salt (e.g. to copy it to the
+        clipboard). Defaults to False. (optional)
+
     Return:
         Fernet: A Fernet objet to encrypt/decrypt
+        tuple[Fernet, str]: (Fernet object, salt in Base64)
+        when return_salt is True.
     """
     # The password must be handled in binary form.
     psw = psw.encode('ascii')
@@ -1192,6 +1283,7 @@ def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
     # from the call functions (encrypt, decrypt). We expect 
     # a value of type b64 urlsafe
     else:
+        salt_b64 = salt  # keep original b64 str for potential return
         salt = base64.urlsafe_b64decode(salt)
 
     # - - - - Derivation algorithm PBKDF2HMAC - - - -
@@ -1223,13 +1315,16 @@ def psw_derivation(psw: str, salt: Union[str, None] = None) -> Fernet:
     key = base64.urlsafe_b64encode(kdf.derive(psw))
     f = Fernet(key)
 
+    if return_salt:
+        return f, salt_b64
     return f
 
 @safety_check
 def encrypt(filename: str, overwrite: bool = True, 
             given_filekey: Union[str, None] = None, 
             psw: Union[str, None] = None, 
-            salt: Union[str, None] = None):
+            salt: Union[str, None] = None,
+            copy_secret: bool = False):
     """Encrypts a file in 3 different ways :
 
     1. By generating a random filekey in the current 
@@ -1255,6 +1350,12 @@ def encrypt(filename: str, overwrite: bool = True,
 
         salt (str | None): Custom salt given to encrypt
         the file. Defaults to None.
+
+        copy_secret (bool): If True, copies the critical
+        secret to the clipboard after successful encryption:
+        the Base64 key in filekey mode, or the salt in 
+        password mode. Uses the pyperclip -> native Linux
+        tools cascade. Defaults to False. (optional)
 
     Error:
         File not found: sys.exit(1)
@@ -1355,7 +1456,7 @@ def encrypt(filename: str, overwrite: bool = True,
         # No salt entered, only password needs to be checked
         if salt is None:
             if valid_password(psw):
-                f = psw_derivation(psw, salt)
+                f, secret_to_copy = psw_derivation(psw, salt, return_salt=True)
             else:
                 sys.exit(1)
         
@@ -1363,7 +1464,7 @@ def encrypt(filename: str, overwrite: bool = True,
         # must be verified.
         elif salt is not None:
             if valid_password(psw) and valid_salt(salt):
-                f = psw_derivation(psw, salt)
+                f, secret_to_copy = psw_derivation(psw, salt, return_salt=True)
             else:
                 sys.exit(1)
 
@@ -1413,6 +1514,32 @@ def encrypt(filename: str, overwrite: bool = True,
     if given_filekey is None and psw is None:
         print("A keyfile.key file has been generated in the " 
               "current folder, please keep it safe.")
+
+    # Copy the critical secret to the clipboard if requested
+    if copy_secret:
+        if psw is None:
+            # Filekey mode: copy the Base64 key stored in the filekey
+            secret_to_copy = key.decode('ascii')
+            secret_label = f"Key from '{generated_filekey_name}'"
+        else:
+            # Password mode: secret_to_copy is the salt (set above)
+            secret_label = "Salt"
+
+        try:
+            pyperclip.copy(secret_to_copy)
+            print(f"{secret_label} copied to clipboard.")
+            print("Don't forget to clean the clipboard after use "
+                  "('clean' command).")
+        except pyperclip.PyperclipException:
+            if USER_OS == "linux":
+                if _copy_linux_native(secret_to_copy):
+                    print(f"{secret_label} copied to clipboard.")
+                    print("Don't forget to clean the clipboard after use "
+                          "('clean' command).")
+                else:
+                    _clipboard_no_mechanism_msg()
+            else:
+                raise
 
 @safety_check
 def decrypt(filename: str,
@@ -1630,6 +1757,16 @@ def main():
         "clean", help="Cleans the clipboard"
     )
 
+    # - - - - - - Command : copykey
+    parser_copykey = subparsers.add_parser(
+        "copykey",
+        help="Copy a filekey's Base64 key to the clipboard"
+    )
+    parser_copykey.add_argument(
+        "filekey",
+        help="Filekey name (with its .key extension)"
+    )
+
     # - - - - - - Command : encrypt
     parser_encrypt = subparsers.add_parser("encrypt",
         help= "Encrypts a file")
@@ -1641,6 +1778,14 @@ def main():
         help= "Encrypts with a given password", action="store_true")
     parser_encrypt.add_argument("-s", "--salt", default= None,
         help= "Encrypts with a given salt value", action="store_true")
+
+    parser_encrypt.add_argument(
+        "-cs", "--copysecret",
+        default=False, action="store_true",
+        help="After encryption, copy the critical secret to the clipboard: "
+             "the Base64 key in filekey mode, or the generated salt in "
+             "password mode"
+    )
 
     # The -overwrite and -copy options are mutually
     # exclusive, only one of them can be called.
@@ -1755,6 +1900,9 @@ def main():
     elif args.command == "clean":
         clean()
 
+    elif args.command == "copykey":
+        copy_filekey(args.filekey)
+
     elif args.command == "encrypt":
         password = None
         salt = None
@@ -1775,12 +1923,14 @@ def main():
         if args.overwrite and not args.copy:
             encrypt(args.filename, overwrite=True, 
                     given_filekey=args.filekey, 
-                    psw=password, salt=salt)
+                    psw=password, salt=salt,
+                    copy_secret=args.copysecret)
 
         if args.copy and not args.overwrite:
             encrypt(args.filename, overwrite=False, 
                     given_filekey=args.filekey, 
-                    psw=password, salt=salt)
+                    psw=password, salt=salt,
+                    copy_secret=args.copysecret)
 
     elif args.command == "decrypt":
         password = None
