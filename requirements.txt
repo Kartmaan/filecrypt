@@ -1,3 +1,4 @@
+# Python >= 3.10 required
 cryptography
 pyperclip
 python-dateutil

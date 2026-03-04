@@ -18,8 +18,8 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2026-03-03
-Version : 1.1.1
+Date : 2026-03-04
+Version : 1.1.2
 """
 
 # ===================================================================
@@ -359,6 +359,11 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
 def valid_filekey_key(filekey: str) -> bool:
     """Checks whether the key present in a filekey is valid.
 
+    A valid Fernet key must be exactly 32 url-safe base64-encoded
+    bytes. Checking only that the content is valid base64 is not
+    sufficient: a string can be decodable yet produce a byte sequence
+    of the wrong length, causing Fernet() to raise a silent ValueError.
+
     Args:
         filekey (str): Given filekey
 
@@ -366,12 +371,21 @@ def valid_filekey_key(filekey: str) -> bool:
         bool: Valid key (True) or not (False).
     """
     with open(filekey, "r") as f:
-        content = f.read()
+        content = f.read().strip()
 
+    # Step 1 — must be valid urlsafe base64
     if not valid_b64_urlsafe(content):
+        print("Invalid key format: not a valid base64 urlsafe string.")
         return False
-    else:
-        return True
+
+    # Step 2 — decoded bytes must be exactly 32 (Fernet requirement)
+    import base64 as _b64
+    decoded = _b64.urlsafe_b64decode(content)
+    if len(decoded) != 32:
+        print(f"Invalid key length: expected 32 bytes, got {len(decoded)}.")
+        return False
+
+    return True
 
 def valid_filekey(filekey: str) -> bool:
     """Checks the validity of a filekey's name as well as 
@@ -1155,20 +1169,42 @@ def get_timestamp(encrypted_file: str,
         print(e)
         raise
 
-def salt_gen():
-    """Generates a random salt value and print it
+def salt_gen(copy_secret: bool = False):
+    """Generates a random salt value and prints it.
+
+    Args:
+        copy_secret (bool): If True, copies the generated salt to
+        the clipboard using the pyperclip -> native Linux cascade.
+        Defaults to False.
 
     Returns:
         str: The b64-urlsafe salt value
     """    
     salt = urandom(16) # 16 random bytes (128 bits)
-    salt_b64 = base64.urlsafe_b64encode(salt).decode('ascii')
+    salt_b64 = base64.urlsafe_b64encode(salt).decode("ascii")
 
     print(salt_b64)
 
+    if copy_secret:
+        try:
+            pyperclip.copy(salt_b64)
+            print("Salt copied to clipboard.")
+            print("Don't forget to clean the clipboard after use "
+                  "('clean' command).")
+        except pyperclip.PyperclipException:
+            if USER_OS == "linux":
+                if _copy_linux_native(salt_b64):
+                    print("Salt copied to clipboard.")
+                    print("Don't forget to clean the clipboard after use "
+                          "('clean' command).")
+                else:
+                    _clipboard_no_mechanism_msg()
+            else:
+                raise
+
 def psw_gen(length=17, include_uppercase=True,
             include_lowercase=True, include_digits=True, 
-            include_symbols=True):
+            include_symbols=True, copy_secret: bool = False):
     """Generates and a strong random password and print it.
 
     The function uses the 'secrets' module to randomly 
@@ -1191,6 +1227,10 @@ def psw_gen(length=17, include_uppercase=True,
         include_symbols (bool, optional): Inclusion of 
         symbols. Defaults to False to avoid syntax conflicts.
 
+
+        copy_secret (bool): If True, copies the generated
+        password to the clipboard using the pyperclip ->
+        native Linux cascade. Defaults to False.
     Raises:
         No char type: ValueError
     """
@@ -1230,6 +1270,23 @@ def psw_gen(length=17, include_uppercase=True,
             break
 
     print(password)
+
+    if copy_secret:
+        try:
+            pyperclip.copy(password)
+            print("Password copied to clipboard.")
+            print("Don't forget to clean the clipboard after use "
+                  "('clean' command).")
+        except pyperclip.PyperclipException:
+            if USER_OS == "linux":
+                if _copy_linux_native(password):
+                    print("Password copied to clipboard.")
+                    print("Don't forget to clean the clipboard after use "
+                          "('clean' command).")
+                else:
+                    _clipboard_no_mechanism_msg()
+            else:
+                raise
 
 def psw_derivation(psw: str, salt: Union[str, None] = None,
                    return_salt: bool = False) -> Union[Fernet, tuple]:
@@ -1596,7 +1653,11 @@ def decrypt(filename: str,
             sys.exit(1)
 
         # Fernet object creation with key
-        f = Fernet(key)
+        try:
+            f = Fernet(key)
+        except ValueError as e:
+            print(f"Error : Invalid filekey — {e}")
+            sys.exit(1)
 
     # Password given : function will be dealing without a filekey
     else:
@@ -1685,7 +1746,11 @@ def verify(filename: str,
             print(f"Error: filekey '{filekey_name}' not found.")
             sys.exit(1)
 
-        f = Fernet(key)
+        try:
+            f = Fernet(key)
+        except ValueError as e:
+            print(f"Error: Invalid filekey — {e}")
+            sys.exit(1)
         key_label = f"Filekey '{filekey_name}'"
 
     else:
@@ -1751,11 +1816,21 @@ def main():
         "salt",
         help="Generates a random salt value"
     )
+    parser_salt.add_argument(
+        "-cs", "--copysecret",
+        default=False, action="store_true",
+        help="Copy the generated salt to the clipboard"
+    )
 
     # - - - - - - Command : psw
     parser_psw = subparsers.add_parser(
         "psw",
         help="Generates a strong random password"
+    )
+    parser_psw.add_argument(
+        "-cs", "--copysecret",
+        default=False, action="store_true",
+        help="Copy the generated password to the clipboard"
     )
 
     # - - - - - - Command : read
@@ -1873,15 +1948,15 @@ def main():
              "password mode"
     )
 
-    # The -overwrite and -copy options are mutually
-    # exclusive, only one of them can be called.
-    # Choosing either option is mandatory
-    group_encrypt = parser_encrypt.add_mutually_exclusive_group(required=True)
+    # The -overwrite and -copy options are mutually exclusive.
+    # Both are optional: if neither is provided, --copy is
+    # applied by default as a safety measure.
+    group_encrypt = parser_encrypt.add_mutually_exclusive_group(required=False)
     group_encrypt.add_argument("-ow", "--overwrite",
-        action="store_true", help= "Overwrites the file")
+        action="store_true", help="Overwrites the original file")
     group_encrypt.add_argument("-c", "--copy",
-        action="store_true", help= "Copy the file "
-        "before overwriting it in its encrypted version")
+        action="store_true", help="Copy the file before overwriting it "
+        "in its encrypted version (default if neither option is given)")
 
     # - - - - - - Command : decrypt
     parser_decrypt = subparsers.add_parser("decrypt",
@@ -1932,10 +2007,10 @@ def main():
         install_from_requirements()
     
     elif args.command == "salt":
-        salt_gen()
+        salt_gen(copy_secret=args.copysecret)
     
     elif args.command == "psw":
-        psw_gen()
+        psw_gen(copy_secret=args.copysecret)
 
     elif args.command == "read":
         read_filekey(args.filekey)
@@ -2032,15 +2107,19 @@ def main():
             password = get_confidential_input("Password: ")
             salt = get_confidential_input("Salt: ")
 
-        if args.overwrite and not args.copy:
-            encrypt(args.filename, overwrite=True, 
-                    given_filekey=args.filekey, 
+        if args.overwrite:
+            encrypt(args.filename, overwrite=True,
+                    given_filekey=args.filekey,
                     psw=password, salt=salt,
                     copy_secret=args.copysecret)
 
-        if args.copy and not args.overwrite:
-            encrypt(args.filename, overwrite=False, 
-                    given_filekey=args.filekey, 
+        else:
+            # --copy explicitly given, or neither option provided
+            # (--copy is the default for safety)
+            if not args.copy:
+                print("Note: no mode specified, defaulting to --copy ")
+            encrypt(args.filename, overwrite=False,
+                    given_filekey=args.filekey,
                     psw=password, salt=salt,
                     copy_secret=args.copysecret)
 
