@@ -18,8 +18,8 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2026-03-04
-Version : 1.1.2
+Date : 2026-03-07
+Version : 1.2.0
 """
 
 # ===================================================================
@@ -428,30 +428,6 @@ def valid_password(psw: str) -> bool:
             return False
 
     return True
-
-def valid_salt(salt: str) -> bool:
-    """Checks the validity of a salt, which must be 
-    base64-encoded.
-
-    Args:
-        salt (str): The given salt value
-
-    Returns:
-        bool: Valid salt (True) or not (False)
-    """
-    if len(salt) == 0:
-        print("No salt value inserted.")
-        return False
-    
-    # No space
-    salt = salt.replace(' ', '')
-       
-    try:
-        salt_ok = base64.urlsafe_b64decode(salt)
-        return True
-    except (ValueError, TypeError):
-        print("Invalid salt, must be a b64.")
-        return False
 
 def get_confidential_input(prompt: str) -> str:
     """Gets confidential input from the user without echoing to the terminal.
@@ -1089,20 +1065,21 @@ def since_when(token_timestamp: int) -> str:
 
 def get_timestamp(encrypted_file: str, 
                   filekey: Union[str, None] = None,
-                  psw: Union[str, None] = None, 
-                  salt: Union[str, None] = None) -> None:
-    """Prints the timestamp of a Fernet token. 
-    Depending on the method used to encrypt the file: 
+                  psw: Union[str, None] = None) -> None:
+    """Prints the timestamp of a Fernet token.
+    Depending on the method used to encrypt the file:
     with a filekey or with a password.
 
+    In password mode, the salt is read automatically from the first
+    16 bytes of the encrypted file (where it is embedded at
+    encryption time) — the user does not need to provide it.
+
     Mutually exclusive args:
-    If the 'filekey' argument is set, the 'psw' and 'salt' 
-    arguments must not be. Conversely, if 'psw' and 
-    'salt' are set, 'filekey' must not be.
+    If 'filekey' is set, 'psw' must not be, and vice versa.
 
     Args:
         encrypted_file (str): Encrypted file name present 
-        in the current folder
+        in the current folder.
 
         filekey (str | None): The filekey used to encrypt 
         the file. Defaults to None.
@@ -1110,17 +1087,12 @@ def get_timestamp(encrypted_file: str,
         psw (str | None): The password used to encrypt the 
         file. Defaults to None.
 
-        salt (str | None): The salt used in combination 
-        with the password to encrypt the file. 
-        Defaults to None.
-    
     Error:
-        File not found: sys.exit(1)
-        Invalid filekey: sys.exit(1)
-        Invalid psw: sys.exit(1)
-        Invalid salt: sys.exit(1)
-        Invalid command combinaison: sys.exit(1)
-        Unexpected error: raise Exception
+        File not found           : sys.exit(1)
+        Invalid filekey          : sys.exit(1)
+        Invalid psw              : sys.exit(1)
+        Bad args combination     : sys.exit(1)
+        Unexpected error         : raise Exception
     
     Return:
         int : The Unix timestamp of the token
@@ -1129,8 +1101,8 @@ def get_timestamp(encrypted_file: str,
         print(f"{encrypted_file} not found.")
         sys.exit(1)
     
-    # From a file crypted with a filekey
-    if filekey is not None and (psw is None and salt is None):
+    # From a file encrypted with a filekey
+    if filekey is not None and psw is None:
         if not valid_filekey(filekey):
             sys.exit(1)
 
@@ -1138,24 +1110,34 @@ def get_timestamp(encrypted_file: str,
             key = key_file.read()
         
         f = Fernet(key)
+
+        with open(encrypted_file, 'rb') as encrypted_data:
+            token = encrypted_data.read()
     
-    # From a file crypted with a psw and a salt
-    elif (psw is not None and salt is not None) and filekey is None:
-        if valid_password(psw) and valid_salt(salt):
-            f = psw_derivation(psw, salt)
-        else:
+    # From a file encrypted with a password
+    # Salt is read automatically from the first 16 bytes of the file
+    elif psw is not None and filekey is None:
+        if not valid_password(psw):
             sys.exit(1)
-    
+
+        with open(encrypted_file, 'rb') as ef:
+            raw = ef.read()
+
+        salt_bytes = raw[:16]
+        token = raw[16:]
+
+        if len(salt_bytes) < 16:
+            print("Error: file too short to contain an embedded salt.")
+            sys.exit(1)
+
+        f, _ = psw_derivation(psw, salt_bytes)
+
     # ERROR
     else:
-        print("Wrong args combinaison, must be :")
-        print("encrypted_file + filekey OR "
-              "encrypted_file + psw + salt.")
+        print("Wrong args combination, must be :")
+        print("encrypted_file + filekey OR encrypted_file + --password.")
         sys.exit(1)
 
-    with open(encrypted_file, 'rb') as encrypted_data:
-        token = encrypted_data.read()
-    
     try:
         timestamp = f.extract_timestamp(token)
         readable_time = dt.fromtimestamp(timestamp)
@@ -1168,39 +1150,6 @@ def get_timestamp(encrypted_file: str,
     except Exception as e:
         print(e)
         raise
-
-def salt_gen(copy_secret: bool = False):
-    """Generates a random salt value and prints it.
-
-    Args:
-        copy_secret (bool): If True, copies the generated salt to
-        the clipboard using the pyperclip -> native Linux cascade.
-        Defaults to False.
-
-    Returns:
-        str: The b64-urlsafe salt value
-    """    
-    salt = urandom(16) # 16 random bytes (128 bits)
-    salt_b64 = base64.urlsafe_b64encode(salt).decode("ascii")
-
-    print(salt_b64)
-
-    if copy_secret:
-        try:
-            pyperclip.copy(salt_b64)
-            print("Salt copied to clipboard.")
-            print("Don't forget to clean the clipboard after use "
-                  "('clean' command).")
-        except pyperclip.PyperclipException:
-            if USER_OS == "linux":
-                if _copy_linux_native(salt_b64):
-                    print("Salt copied to clipboard.")
-                    print("Don't forget to clean the clipboard after use "
-                          "('clean' command).")
-                else:
-                    _clipboard_no_mechanism_msg()
-            else:
-                raise
 
 def psw_gen(length=17, include_uppercase=True,
             include_lowercase=True, include_digits=True, 
@@ -1288,60 +1237,33 @@ def psw_gen(length=17, include_uppercase=True,
             else:
                 raise
 
-def psw_derivation(psw: str, salt: Union[str, None] = None,
-                   return_salt: bool = False) -> Union[Fernet, tuple]:
-    """Creates a Fernet object with a given password and 
-    a salt value.
+def psw_derivation(psw: str,
+                   salt_bytes: Union[bytes, None] = None) -> tuple:
+    """Creates a Fernet object from a password and a raw salt.
 
-    psw :
-    Since we can't decently ask the user to enter a 
-    memorable 128-bit password, the inserted password will 
-    be derived in such a way as to comply with Fernet's 
-    standards of use.
+    The salt is always handled as raw bytes (16 bytes / 128 bits).
+    It is no longer displayed or communicated to the user: it is
+    embedded directly into the encrypted file by the caller.
 
-    salt :
-    If no salt value is entered, a random value will be 
-    generated.
+    If no salt is provided, a cryptographically secure random salt
+    is generated via os.urandom(16).
 
     Args:
-        psw (str): Desired name for filekey without
-        extension.
+        psw (str): Password to derive the key from.
 
-        salt (str | None): Given salt value.
-        Defaults to None. (optional)
-
-        return_salt (bool): If True, returns a (Fernet, salt_b64)
-        tuple instead of just the Fernet object. Useful when the
-        caller needs the generated salt (e.g. to copy it to the
-        clipboard). Defaults to False. (optional)
+        salt_bytes (bytes | None): Raw 16-byte salt. If None, a
+        random salt is generated. Defaults to None.
 
     Return:
-        Fernet: A Fernet objet to encrypt/decrypt
-        tuple[Fernet, str]: (Fernet object, salt in Base64)
-        when return_salt is True.
+        tuple[Fernet, bytes]: Fernet object ready to
+        encrypt/decrypt, and the raw salt bytes used.
     """
     # The password must be handled in binary form.
     psw = psw.encode('ascii')
 
-    # No salt inserted, so a salt will be randomly 
-    # generated. 
-    if salt is None:
-        salt = urandom(16) # 16 random bytes
-
-        # The salt value is converted to b64 so that it 
-        # can be displayed in a way that is readable 
-        # enough for the user.
-        salt_b64 = base64.urlsafe_b64encode(salt).decode('ascii')
-        print("- - - - SALT (KEEP IT SAFE) - - - - -")
-        print(f"{salt_b64}")
-        print("- - - - - - - - - - - - - - - - - - -")
-
-    # A salt has been inserted. Its validity is checked 
-    # from the call functions (encrypt, decrypt). We expect 
-    # a value of type b64 urlsafe
-    else:
-        salt_b64 = salt  # keep original b64 str for potential return
-        salt = base64.urlsafe_b64decode(salt)
+    # No salt provided: generate a cryptographically secure one
+    if salt_bytes is None:
+        salt_bytes = urandom(16) # 16 random bytes (128 bits)
 
     # - - - - Derivation algorithm PBKDF2HMAC - - - -
     # * algorithm : Specifies the hash algorithm to be used 
@@ -1361,10 +1283,10 @@ def psw_derivation(psw: str, salt: Union[str, None] = None,
     kdf = PBKDF2HMAC(
         algorithm = hashes.SHA256(),
         length = 32,
-        salt = salt,
+        salt = salt_bytes,
         iterations = 480000,
         )
-    
+
     # The password is derived and combined with the 
     # previously specified parameters. The key is 
     # converted to b64 urlsafe to comply with Fernet 
@@ -1372,53 +1294,48 @@ def psw_derivation(psw: str, salt: Union[str, None] = None,
     key = base64.urlsafe_b64encode(kdf.derive(psw))
     f = Fernet(key)
 
-    if return_salt:
-        return f, salt_b64
-    return f
+    return f, salt_bytes
 
 @safety_check
 def encrypt(filename: str, overwrite: bool = True, 
             given_filekey: Union[str, None] = None, 
-            psw: Union[str, None] = None, 
-            salt: Union[str, None] = None,
+            psw: Union[str, None] = None,
             copy_secret: bool = False):
     """Encrypts a file in 3 different ways :
 
-    1. By generating a random filekey in the current 
-    folder
-    2. By retrieving a filekey already present in the 
-    current folder
-    3. By taking a password and a salt
+    1. By generating a random filekey in the current folder
+    2. By using a filekey already present in the current folder
+    3. By taking a password (salt is generated and embedded automatically)
 
     These 3 methods are mutually exclusive.
+
+    In password mode, a random 16-byte salt is generated at encryption
+    time and written as a plain prefix to the encrypted file:
+        [16 salt bytes] + [Fernet token]
+    The salt is public and does not need to be communicated separately.
+    It is recovered automatically at decryption time.
 
     Args:
         filename (str): File name to encrypt.
 
-        overwrite (bool): Overwrite the file to
-        encrypt. Defaults to True. (optional)
+        overwrite (bool): Overwrite the file to encrypt.
+        Defaults to True. (optional)
 
-        given_filekey (str | None): Name of the filekey 
-        already present in the current folder for 
-        encrypting with. Defaults to None.
+        given_filekey (str | None): Name of an existing filekey in
+        the current folder to encrypt with. Defaults to None.
 
         psw (str | None): Password to encrypt the file.
         Defaults to None.
 
-        salt (str | None): Custom salt given to encrypt
-        the file. Defaults to None.
-
-        copy_secret (bool): If True, copies the critical
-        secret to the clipboard after successful encryption:
-        the Base64 key in filekey mode, or the salt in 
-        password mode. Uses the pyperclip -> native Linux
-        tools cascade. Defaults to False. (optional)
+        copy_secret (bool): If True, copies the Base64 key to the
+        clipboard after encryption (filekey mode only). In password
+        mode the salt is embedded in the file and does not need to
+        be copied. Defaults to False. (optional)
 
     Error:
         File not found: sys.exit(1)
         Invalid filekey: sys.exit(1)
         Invalid password: sys.exit(1)
-        Invalid salt: sys.exit(1)
         Unexpected error: sys.exit(1)
     """
     
@@ -1482,53 +1399,11 @@ def encrypt(filename: str, overwrite: bool = True,
     # Password given : function will be dealing without a 
     # filekey
     else:
-        # Security checkpoint. The procedure will encrypt 
-        # the file by overwriting it with a new salt value.
-        # The operation is critical enough to attract the 
-        # user's attention.
-        if overwrite and (psw is not None and salt is None):
-            choice = ''
-            available_choices = ['y', 'yes', 'n', 'no'] 
-
-            while choice not in available_choices:
-                print("CAUTION: You are about to encrypt "
-                f"{filename} by overwriting it with a new "
-                "random salt. The new salt will be displayed "
-                "after confirmation and must be noted and " 
-                "kept safe.")
-                choice = input("Do you confirm this operation? (y/n): ")
-                choice = choice.lower()
-
-                if choice == 'n' or choice == 'no':
-                    print("Operation cancellation...")
-                    sys.exit(0)
-                
-                elif choice == 'y' or choice == 'yes':
-                    pass
-
-                else:
-                    print("Wrong input.")
-                    continue
-
-        # No salt entered, only password needs to be checked
-        if salt is None:
-            if valid_password(psw):
-                f, secret_to_copy = psw_derivation(psw, salt, return_salt=True)
-            else:
-                sys.exit(1)
-        
-        # A salt has been inserted, the password and salt 
-        # must be verified.
-        elif salt is not None:
-            if valid_password(psw) and valid_salt(salt):
-                f, secret_to_copy = psw_derivation(psw, salt, return_salt=True)
-            else:
-                sys.exit(1)
-
-        # Who knows ?
-        else:
-            print("Unexpected error ('encrypt' with psw).")
+        # Password mode: validate password, generate salt automatically
+        if not valid_password(psw):
             sys.exit(1)
+
+        f, salt_bytes = psw_derivation(psw)
 
     # Copying the file before overwriting it
     if not overwrite:
@@ -1563,24 +1438,26 @@ def encrypt(filename: str, overwrite: bool = True,
     encrypted = f.encrypt(file_bytes)
 
     # Overwriting the file with encrypted bytes data
+    # In password mode: prepend the raw 16-byte salt so it can be
+    # recovered automatically at decryption time.
     print(f"Encrypted data writing...")
     with open(filename, 'wb') as encrypted_file:
-        encrypted_file.write(encrypted)
+        if psw is not None:
+            encrypted_file.write(salt_bytes + encrypted)
+        else:
+            encrypted_file.write(encrypted)
 
     print(f"---- Operation completed successfully ----")
     if given_filekey is None and psw is None:
-        print("A keyfile.key file has been generated in the " 
+        print("A keyfile has been generated in the " 
               "current folder, please keep it safe.")
 
-    # Copy the critical secret to the clipboard if requested
-    if copy_secret:
-        if psw is None:
-            # Filekey mode: copy the Base64 key stored in the filekey
-            secret_to_copy = key.decode('ascii')
-            secret_label = f"Key from '{generated_filekey_name}'"
-        else:
-            # Password mode: secret_to_copy is the salt (set above)
-            secret_label = "Salt"
+    # Copy the filekey's Base64 key to the clipboard if requested
+    # (filekey mode only; in password mode the salt is embedded in the
+    # file and is inspectable via 'getsalt' — nothing sensitive to copy)
+    if copy_secret and psw is None:
+        secret_to_copy = key.decode('ascii')
+        secret_label = f"Key from '{generated_filekey_name}'"
 
         try:
             pyperclip.copy(secret_to_copy)
@@ -1601,34 +1478,32 @@ def encrypt(filename: str, overwrite: bool = True,
 @safety_check
 def decrypt(filename: str,
             filekey_name: Union[str, None] = None, 
-            psw: Union[str, None] = None, 
-            salt: Union[str, None] = None):
+            psw: Union[str, None] = None):
     """Decrypts a file in 2 different ways :
 
-    1. By using filekey present in the current folder
-    2. By using a password and a salt
+    1. By using a filekey present in the current folder
+    2. By using a password (salt is read automatically from the file)
 
     These 2 methods are mutually exclusive.
 
-    Args:
-        filename (str): Name of file to be decrypted
+    In password mode, the salt is recovered from the first 16 bytes
+    of the encrypted file (where it was embedded at encryption time).
+    The user only needs to provide the password.
 
-        filekey_name (str | None): Name of the filekey 
-        already present in the current folder for 
-        decrypt with. Defaults to None.
+    Args:
+        filename (str): Name of file to be decrypted.
+
+        filekey_name (str | None): Name of the filekey in the
+        current folder to decrypt with. Defaults to None.
         
         psw (str | None): Password to decrypt the file.
         Defaults to None.
-        
-        salt (str | None): Salt value given to decrypt
-        the file. Defaults to None.
 
     Error:
-        File not found: sys.exit(1)
-        Invalid filekey: sys.exit(1)
-        Invalid psw: sys.exit(1)
-        Invalid salt: sys.exit(1)
-        Invalid token: sys.exit(1)
+        File not found  : sys.exit(1)
+        Invalid filekey : sys.exit(1)
+        Invalid psw     : sys.exit(1)
+        Invalid token   : sys.exit(1)
     """
     
     if not in_current_folder(filename):
@@ -1637,54 +1512,66 @@ def decrypt(filename: str,
 
     print(f"---- Decryption of {filename} ----")
 
-    # No password given : function will be dealing with a filekey
+    # ── Filekey mode ─────────────────────────────────────────────────
     if psw is None:
         if not valid_filekey(filekey_name):
             sys.exit(1)
 
-        # Filekey reading and retrieved as bytes
         print(f"Filekey reading ({filekey_name})...")
         try:
             with open(filekey_name, 'rb') as filekey:
-                key = filekey.read() # key = bytes
+                key = filekey.read()
         except FileNotFoundError:
             print(f"Error : No such filekey : '{filekey_name}'"
             " in the current folder.")
             sys.exit(1)
 
-        # Fernet object creation with key
         try:
             f = Fernet(key)
         except ValueError as e:
             print(f"Error : Invalid filekey — {e}")
             sys.exit(1)
 
-    # Password given : function will be dealing without a filekey
-    else:
-        if valid_password(psw) and valid_salt(salt):
-            f = psw_derivation(psw, salt)
-        else:
+        print(f"{filename} reading...")
+        try:
+            with open(filename, 'rb') as ef:
+                encrypted = ef.read()
+        except FileNotFoundError:
+            print(f"Error : No such file : '{filename}' in the current folder")
             sys.exit(1)
 
-    # Recovery the file to be decrypted (bytes)
-    print(f"{filename} reading...")
-    try:
-        with open(filename, 'rb') as encrypted_file:
-            encrypted = encrypted_file.read() # encrypted = bytes
-    except FileNotFoundError:
-        print(f"Error : No such file : '{filename}' in the current folder")
-        sys.exit(1)
+    # ── Password mode ─────────────────────────────────────────────────
+    # Salt is extracted from the first 16 bytes of the encrypted file
+    else:
+        if not valid_password(psw):
+            sys.exit(1)
+
+        print(f"{filename} reading...")
+        try:
+            with open(filename, 'rb') as ef:
+                raw = ef.read()
+        except FileNotFoundError:
+            print(f"Error : No such file : '{filename}' in the current folder")
+            sys.exit(1)
+
+        if len(raw) < 17:
+            print("Error: file too short to contain an embedded salt.")
+            sys.exit(1)
+
+        salt_bytes = raw[:16]
+        encrypted  = raw[16:]
+        print("Salt recovered from file...")
+        f, _ = psw_derivation(psw, salt_bytes)
 
     # File data decryption
     print("Decrypting data...")
-    try :
+    try:
         decrypted = f.decrypt(encrypted)
     except InvalidToken:
         print("Error : Invalid Fernet token")
         sys.exit(1)
 
-    # Overwriting the file with decrypted bytes data
-    # File regains its integrity
+    # Overwriting the file with decrypted bytes
     print(f"{filename} writing...")
     with open(filename, 'wb') as decrypted_file:
         decrypted_file.write(decrypted)
@@ -1693,18 +1580,19 @@ def decrypt(filename: str,
 
 def verify(filename: str,
            filekey_name: Union[str, None] = None,
-           psw: Union[str, None] = None,
-           salt: Union[str, None] = None) -> None:
-    """Verifies that a filekey or a password/salt pair is compatible
-    with an encrypted file, without writing anything to disk.
+           psw: Union[str, None] = None) -> None:
+    """Verifies that a filekey or a password is compatible with an
+    encrypted file, without writing anything to disk.
 
     The file is read and decryption is attempted entirely in memory.
     The decrypted result is immediately discarded — the file on disk
-    is never modified. This lets the user confirm that a key is valid
-    before a full decrypt, or before safely deleting a filekey.
+    is never modified.
 
-    Mirrors decrypt() in its two modes (filekey / password+salt)
-    but is strictly read-only.
+    In password mode, the salt is extracted automatically from the
+    first 16 bytes of the file. The user only needs to provide the
+    password.
+
+    Mirrors decrypt() in its two modes but is strictly read-only.
 
     Args:
         filename (str): Name of the encrypted file to check.
@@ -1716,14 +1604,100 @@ def verify(filename: str,
         psw (str | None): Password to verify against.
         Mutually exclusive with filekey_name. Defaults to None.
 
-        salt (str | None): Salt paired with the password.
-        Defaults to None.
-
     Error:
         File not found     : sys.exit(1)
         Invalid filekey    : sys.exit(1)
-        Invalid psw / salt : sys.exit(1)
+        Invalid psw        : sys.exit(1)
         Wrong key/password : informs user, sys.exit(1)
+    """
+    if not in_current_folder(filename):
+        print(f"{filename} not in the current folder.")
+        sys.exit(1)
+
+    if not exists(filename):
+        print(f"Error: \'{filename}\' not found in the current folder.")
+        sys.exit(1)
+
+    # ── Filekey mode ──────────────────────────────────────────────────
+    if psw is None:
+        if not valid_filekey(filekey_name):
+            sys.exit(1)
+
+        try:
+            with open(filekey_name, 'rb') as fk:
+                key = fk.read()
+        except FileNotFoundError:
+            print(f"Error: filekey \'{filekey_name}\' not found.")
+            sys.exit(1)
+
+        try:
+            f = Fernet(key)
+        except ValueError as e:
+            print(f"Error: Invalid filekey — {e}")
+            sys.exit(1)
+
+        key_label = f"Filekey \'{filekey_name}\'"
+
+        try:
+            with open(filename, 'rb') as ef:
+                encrypted = ef.read()
+        except FileNotFoundError:
+            print(f"Error: \'{filename}\' not found in the current folder.")
+            sys.exit(1)
+
+    # ── Password mode ─────────────────────────────────────────────────
+    # Salt is extracted automatically from the first 16 bytes
+    else:
+        if not valid_password(psw):
+            sys.exit(1)
+
+        try:
+            with open(filename, 'rb') as ef:
+                raw = ef.read()
+        except FileNotFoundError:
+            print(f"Error: \'{filename}\' not found in the current folder.")
+            sys.exit(1)
+
+        if len(raw) < 17:
+            print("Error: file too short to contain an embedded salt.")
+            sys.exit(1)
+
+        salt_bytes = raw[:16]
+        encrypted  = raw[16:]
+        f, _ = psw_derivation(psw, salt_bytes)
+        key_label = "The given password"
+
+    # Attempt in-memory decryption — result is intentionally discarded
+    try:
+        f.decrypt(encrypted)
+        print(f"\u2713 Verification successful.")
+        print(f"  {key_label} can decrypt \'{filename}\'.")
+    except InvalidToken:
+        print(f"\u2717 Verification failed.")
+        print(f"  {key_label} cannot decrypt \'{filename}\'.")
+        print("  The password may be wrong, or the file may not be "
+              "a valid password-encrypted Fernet token.")
+        sys.exit(1)
+
+def get_salt(filename: str, copy_secret: bool = False) -> None:
+    """Extracts and displays the salt embedded in a password-encrypted file.
+
+    When a file is encrypted with a password, a random 16-byte salt is
+    prepended to the Fernet token. This function reads those first 16
+    bytes and displays the salt as a Base64 urlsafe string.
+
+    The salt is public by nature and its display poses no security risk.
+    It can be useful for inspection, archiving, or debugging purposes.
+
+    Args:
+        filename (str): Password-encrypted file in the current folder.
+
+        copy_secret (bool): If True, copies the salt to the clipboard
+        using the pyperclip -> native Linux cascade. Defaults to False.
+
+    Error:
+        File not found        : sys.exit(1)
+        File too short        : sys.exit(1)
     """
     if not in_current_folder(filename):
         print(f"{filename} not in the current folder.")
@@ -1733,53 +1707,37 @@ def verify(filename: str,
         print(f"Error: '{filename}' not found in the current folder.")
         sys.exit(1)
 
-    # Build the Fernet object — same logic as decrypt(), no disk write
-    if psw is None:
-        # ── Filekey mode ─────────────────────────────────────────────
-        if not valid_filekey(filekey_name):
-            sys.exit(1)
-
-        try:
-            with open(filekey_name, 'rb') as fk:
-                key = fk.read()
-        except FileNotFoundError:
-            print(f"Error: filekey '{filekey_name}' not found.")
-            sys.exit(1)
-
-        try:
-            f = Fernet(key)
-        except ValueError as e:
-            print(f"Error: Invalid filekey — {e}")
-            sys.exit(1)
-        key_label = f"Filekey '{filekey_name}'"
-
-    else:
-        # ── Password + salt mode ─────────────────────────────────────
-        if not valid_password(psw) or not valid_salt(salt):
-            sys.exit(1)
-
-        f = psw_derivation(psw, salt)
-        key_label = "The given password and salt"
-
-    # Read the encrypted file
     try:
-        with open(filename, 'rb') as ef:
-            encrypted = ef.read()
-    except FileNotFoundError:
-        print(f"Error: '{filename}' not found in the current folder.")
+        with open(filename, 'rb') as f:
+            salt_bytes = f.read(16)
+    except OSError as e:
+        print(f"Error reading '{filename}': {e}")
         sys.exit(1)
 
-    # Attempt in-memory decryption — result is intentionally discarded
-    try:
-        f.decrypt(encrypted)
-        print(f"\u2713 Verification successful.")
-        print(f"  {key_label} can decrypt '{filename}'.")
-    except InvalidToken:
-        print(f"\u2717 Verification failed.")
-        print(f"  {key_label} cannot decrypt '{filename}'.")
-        print("  The key may be wrong, or the file may not be "
-              "a valid Fernet token.")
+    if len(salt_bytes) < 16:
+        print("Error: file too short to contain an embedded salt.")
+        print("This file may not have been encrypted with a password.")
         sys.exit(1)
+
+    salt_b64 = base64.urlsafe_b64encode(salt_bytes).decode('ascii')
+    print(f"Salt: {salt_b64}")
+
+    if copy_secret:
+        try:
+            pyperclip.copy(salt_b64)
+            print("Salt copied to clipboard.")
+            print("Don't forget to clean the clipboard after use "
+                  "('clean' command).")
+        except pyperclip.PyperclipException:
+            if USER_OS == "linux":
+                if _copy_linux_native(salt_b64):
+                    print("Salt copied to clipboard.")
+                    print("Don't forget to clean the clipboard after use "
+                          "('clean' command).")
+                else:
+                    _clipboard_no_mechanism_msg()
+            else:
+                raise
 
 # ===================================================================
 #                             ARGPARSER
@@ -1809,17 +1767,6 @@ def main():
     parser_install = subparsers.add_parser(
         "install",
         help="Install dependencies using pip"
-    )
-
-    # - - - - - - Command : salt
-    parser_salt = subparsers.add_parser(
-        "salt",
-        help="Generates a random salt value"
-    )
-    parser_salt.add_argument(
-        "-cs", "--copysecret",
-        default=False, action="store_true",
-        help="Copy the generated salt to the clipboard"
     )
 
     # - - - - - - Command : psw
@@ -1859,7 +1806,8 @@ def main():
     )
     parser_timestamp.add_argument(
         "-p", "--password",
-        help="Password used to encrypt the file",
+        help="Password used to encrypt the file (salt is recovered "
+             "automatically from the file)",
         default= None, action= "store_true"
     )
 
@@ -1928,6 +1876,21 @@ def main():
         help="Filekey name (with its .key extension)"
     )
 
+    # - - - - - - Command : getsalt
+    parser_getsalt = subparsers.add_parser(
+        "getsalt",
+        help="Extract the salt embedded in a password-encrypted file"
+    )
+    parser_getsalt.add_argument(
+        "filename",
+        help="Password-encrypted file (with its extension)"
+    )
+    parser_getsalt.add_argument(
+        "-cs", "--copysecret",
+        default=False, action="store_true",
+        help="Copy the extracted salt to the clipboard"
+    )
+
     # - - - - - - Command : encrypt
     parser_encrypt = subparsers.add_parser("encrypt",
         help= "Encrypts a file")
@@ -1936,16 +1899,15 @@ def main():
     parser_encrypt.add_argument("-f", "--filekey",
         help= "Name of the existing filekey (with its extension)", default=None)
     parser_encrypt.add_argument("-p", "--password", default= None,
-        help= "Encrypts with a given password", action="store_true")
-    parser_encrypt.add_argument("-s", "--salt", default= None,
-        help= "Encrypts with a given salt value", action="store_true")
+        help= "Encrypts with a given password (salt is generated and "
+             "embedded automatically)", action="store_true")
 
     parser_encrypt.add_argument(
         "-cs", "--copysecret",
         default=False, action="store_true",
-        help="After encryption, copy the critical secret to the clipboard: "
-             "the Base64 key in filekey mode, or the generated salt in "
-             "password mode"
+        help="After encryption, copy the filekey's Base64 key to the "
+             "clipboard (filekey mode only; in password mode the salt "
+             "is embedded in the file and retrieved via 'getsalt')"
     )
 
     # The -overwrite and -copy options are mutually exclusive.
@@ -1969,10 +1931,9 @@ def main():
         " If decryption is to be done using a password, "
         "this field does not need to be filled in.")
     parser_decrypt.add_argument("-p", "--password", 
-        default= None, help= "Decrypts with a given password", 
+        default= None, help= "Decrypts with a given password (salt is "
+        "recovered automatically from the file)", 
         action="store_true")
-    parser_decrypt.add_argument("-s", "--salt", default= None,
-        help= "Decrypts with a given salt value", action="store_true")
 
     # - - - - - - Command : verify
     parser_verify = subparsers.add_parser(
@@ -1992,12 +1953,8 @@ def main():
     parser_verify.add_argument(
         "-p", "--password",
         default=None, action="store_true",
-        help="Verify using a password instead of a filekey"
-    )
-    parser_verify.add_argument(
-        "-s", "--salt",
-        default=None, action="store_true",
-        help="Provide a custom salt alongside the password"
+        help="Verify using a password instead of a filekey (salt is "
+             "recovered automatically from the file)"
     )
 
         # - - - - - - Call logics - - - - - -
@@ -2006,9 +1963,6 @@ def main():
     if args.command == "install":
         install_from_requirements()
     
-    elif args.command == "salt":
-        salt_gen(copy_secret=args.copysecret)
-    
     elif args.command == "psw":
         psw_gen(copy_secret=args.copysecret)
 
@@ -2016,34 +1970,25 @@ def main():
         read_filekey(args.filekey)
     
     elif args.command == "timestamp":
-        password = None
-        salt = None
-
         # Conflict
-        if (args.filekey and args.password):
+        if args.filekey and args.password:
             print("ERROR : You must provide either a 'filekey' or a "
                 "'--password'.")
             sys.exit(1)
 
         # File encrypted with a filekey
-        if args.filekey:
-            get_timestamp(
-            encrypted_file=args.encrypted_file,
-            filekey= args.filekey, psw= password,
-            salt= salt)
-        
-        # File encrypted with a psw and a salt
+        elif args.filekey:
+            get_timestamp(encrypted_file=args.encrypted_file,
+                          filekey=args.filekey)
+
+        # Password mode: salt is recovered automatically from the file
         elif args.password:
             password = get_confidential_input("Password: ")
-            salt = get_confidential_input("Salt: ")
+            get_timestamp(encrypted_file=args.encrypted_file,
+                          psw=password)
 
-            get_timestamp(
-            encrypted_file=args.encrypted_file,
-            filekey= args.filekey, psw= password,
-            salt= salt)
-        
         else:
-            print("Wrong command combinaison.")
+            print("Wrong command combination.")
             sys.exit(1)
 
     elif args.command == "create":
@@ -2092,62 +2037,48 @@ def main():
 
     elif args.command == "encrypt":
         password = None
-        salt = None
 
         if args.password and args.filekey:
             print("ERROR : You must provide either a 'filekey' or a "
                 "'--password'.")
             sys.exit(1)
 
-        if args.password and not args.salt:
+        if args.password:
             password = get_confidential_input("Password: ")
-            salt = None
-        
-        if args.password and args.salt:
-            password = get_confidential_input("Password: ")
-            salt = get_confidential_input("Salt: ")
 
         if args.overwrite:
             encrypt(args.filename, overwrite=True,
                     given_filekey=args.filekey,
-                    psw=password, salt=salt,
+                    psw=password,
                     copy_secret=args.copysecret)
 
         else:
             # --copy explicitly given, or neither option provided
             # (--copy is the default for safety)
             if not args.copy:
-                print("Note: no mode specified, defaulting to --copy ")
+                print("Note: no mode specified, defaulting to --copy")
             encrypt(args.filename, overwrite=False,
                     given_filekey=args.filekey,
-                    psw=password, salt=salt,
+                    psw=password,
                     copy_secret=args.copysecret)
 
     elif args.command == "decrypt":
-        password = None
-        salt = None
         # Wrong command
         if (args.password is None and args.filekey is None) or (args.password and args.filekey):
             print("ERROR : You must provide either a 'filekey' or a "
                 "'--password'.")
             sys.exit(1)
 
-        # File must be decrypted with a password
+        # Password mode: salt is recovered automatically from the file
         elif args.password:
             password = get_confidential_input("Password: ")
-            salt = get_confidential_input("Salt: ")
-    
-            decrypt(args.filename, psw=password, 
-                        salt=salt)
+            decrypt(args.filename, psw=password)
 
-        # File must be decrypted with a filekey
+        # Filekey mode
         else:
             decrypt(args.filename, args.filekey)
 
     elif args.command == "verify":
-        password = None
-        salt = None
-
         # Conflict : both filekey and --password provided
         if args.filekey and args.password:
             print("ERROR : You must provide either a 'filekey' or "
@@ -2155,20 +2086,22 @@ def main():
             sys.exit(1)
 
         # Neither provided
-        if not args.filekey and not args.password:
+        elif not args.filekey and not args.password:
             print("ERROR : You must provide either a 'filekey' or "
                   "'--password'.")
             sys.exit(1)
 
-        # Password + salt mode
-        if args.password:
+        # Password mode: salt is recovered automatically from the file
+        elif args.password:
             password = get_confidential_input("Password: ")
-            salt = get_confidential_input("Salt: ")
-            verify(args.filename, psw=password, salt=salt)
+            verify(args.filename, psw=password)
 
         # Filekey mode
         else:
             verify(args.filename, filekey_name=args.filekey)
+
+    elif args.command == "getsalt":
+        get_salt(args.filename, copy_secret=args.copysecret)
 
     else:
         print("ERROR : Unknown argument.")
