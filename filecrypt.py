@@ -18,8 +18,8 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2026-03-07
-Version : 1.2.0
+Date : 2026-03-08
+Version : 1.2.1
 """
 
 # ===================================================================
@@ -56,6 +56,62 @@ REQUIREMENTS = ["cryptography", "pyperclip", "python-dateutil"]
 FILEKEY_EXT = ".key"
 
 # ===================================================================
+#                        OUTPUT FORMATTING
+# ===================================================================
+# A small set of helpers that give the terminal output a consistent
+# visual vocabulary. Every print() in the script should go through
+# one of these rather than calling print() directly.
+#
+#   _fmt_header(text)  — opening line of an operation
+#   _fmt_step(text)    — progress line inside an operation
+#   _fmt_ok(text)      — closing line on success
+#   _fmt_info(text)    — supplementary note after a result
+#   _fmt_err(text)     — error message (standalone, no open block)
+#   _fmt_warn(text)    — warning / caution block
+#   _fmt_result(...)   — bordered info box (e.g. timestamp output)
+#   _fmt_ask(text)     — prompt label (returns the string, no newline)
+
+def _fmt_header(text: str) -> None:
+    print(f"\n  ┌─ {text}")
+
+def _fmt_step(text: str) -> None:
+    print(f"  │  {text}")
+
+def _fmt_ok(text: str = "Operation completed successfully") -> None:
+    print(f"  └─ ✓  {text}\n")
+
+def _fmt_info(text: str) -> None:
+    print(f"     {text}")
+
+def _fmt_err(text: str) -> None:
+    print(f"\n  ✗  {text}\n")
+
+def _fmt_warn(title: str, body: str = "") -> None:
+    print(f"\n  ⚠   {title}")
+    if body:
+        for line in body.splitlines():
+            print(f"      {line}")
+    print()
+
+def _fmt_result(lines_dict: dict, title: str = "") -> None:
+    """Prints a bordered info box.
+    lines_dict: OrderedDict-style {label: value} pairs.
+    """
+    if title:
+        print(f"\n  ╌╌  {title}  ╌╌")
+    else:
+        print(f"\n  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌")
+    label_width = max(len(k) for k in lines_dict) if lines_dict else 0
+    for label, value in lines_dict.items():
+        print(f"  │  {label:<{label_width}}  {value}")
+    print(f"  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n")
+
+def _fmt_ask(text: str) -> str:
+    """Returns a consistently indented prompt string for use with
+    input() or getpass()."""
+    return f"  │  {text}"
+
+# ===================================================================
 #                        NON-BUILT-IN MODULES
 # ===================================================================
 def install_from_requirements():
@@ -65,17 +121,17 @@ def install_from_requirements():
     for package in REQUIREMENTS:
         try:
             # Tries to install the package with pip
-            print(f"Checking and installing the package : {package}.")
+            _fmt_step(f"Installing {package}...")
             subprocess.check_call([sys.executable, "-m",
                 "pip", "install", package])
-            print(f"{package} has been successfully installed.")
+            _fmt_step(f"{package} installed.")
 
         except subprocess.CalledProcessError:
-            print(f"Error: Unable to install {package}. Check your connection.")
+            _fmt_err(f"Unable to install {package}. Check your connection.")
             raise
 
         except Exception as e:
-            print(f"An unexpected error has occurred : {e}.")
+            _fmt_err(f"An unexpected error has occurred : {e}.")
             raise
 
 # As these modules are not built-in, we insert them in a 
@@ -91,8 +147,8 @@ except ImportError:
     choice = None
 
     while choice != "y" and choice != "n":
-        print("One of the following modules isn't installed "
-        f"in your environment: {REQUIREMENTS}.")
+        _fmt_warn("Missing modules",
+                  f"The following modules are not installed: {REQUIREMENTS}")
 
         choice = input("Do you want to install them ? (y/n): ")
         choice = choice.lower()
@@ -101,11 +157,10 @@ except ImportError:
             install_from_requirements()
             sys.exit(0)
         elif choice == "n":
-            print("Exiting. Please install the missing " 
-            "modules manually.")
+            _fmt_info("Please install the missing modules manually.")
             sys.exit(1)
         else:
-            print("Invalid input.")
+            _fmt_err("Invalid input.")
             continue
 
 # ===================================================================
@@ -128,7 +183,7 @@ def safety_check(func):
     txt=f"This functionality ({func.__name__}) isn't available in safe mode."
     def wrap(*args, **kwargs):
         if SAFE_MODE:
-            print(txt)
+            _fmt_warn("SAFE MODE", txt)
             sys.exit(1)
         else:
             return func(*args, **kwargs)
@@ -236,18 +291,16 @@ def handle_remove_readonly(func: callable, path: str, exc: tuple[any, Exception,
 # ===================================================================
 
 if USER_OS not in SUPPORTED_OS:
-    print(f"This OS ({USER_OS}) isn't supported by the script")
-    print(f"Supported OS: {SUPPORTED_OS}")
+    _fmt_err(f"This OS ({USER_OS}) isn't supported. Supported: {SUPPORTED_OS}")
     sys.exit(1)
 
 # If the script is in a sensitive area of the system, 
 # SAFE_MODE is activated.
 if in_danger_zone(SCRIPT_PATH):
     SAFE_MODE = True
-    print("- - - - CAUTION - - - -") 
-    print("SAFE MODE: The script is located in a critical area of the " 
-          "system, some functions will be disabled.")
-    print("")
+    _fmt_warn("SAFE MODE",
+              "The script is located in a critical area of the system.\n"
+              "File-modifying operations are disabled.")
 
 # ===================================================================
 #                      INPUT CONTROL FUNCTIONS
@@ -290,12 +343,12 @@ def valid_filename(file_name: str) -> bool:
     # Not a str (unlikely in the context of this script,
     # but who knows?)
     if not isinstance(file_name, str):
-        print("File name must be a str.")
+        _fmt_err("File name must be a str.")
         return False
 
     # The string is too long
     if len(file_name) > 255:
-        print("File name is too long (must contain less "
+        _fmt_err("File name is too long (must contain less than"
               "than 256 characters).")
         return False
 
@@ -303,7 +356,7 @@ def valid_filename(file_name: str) -> bool:
     # whitelist
     for char in file_name:
         if char not in whitelist:
-            print("Invalid char in file name.")
+            _fmt_err("Invalid char in file name.")
             return False
 
     # Seems ok
@@ -327,7 +380,7 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
         bool: Valid filekey name (True) or not (False)
     """
     if not isinstance(filekey, str):
-        print(f"Wrong type, must be a str ({type(filekey)}"
+        _fmt_err(f"Wrong type, must be a str ({type(filekey)}"
         " given.)")
         return False
 
@@ -337,11 +390,11 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     # the file exists and has the right extension
     if not create:
         if not exists(filekey):
-            print(f"{filekey} not found.")
+            _fmt_err(f"{filekey} not found.")
             return False
 
         if not filekey.endswith(FILEKEY_EXT):
-            print(f"Filekey must be '{FILEKEY_EXT}'.")
+            _fmt_err(f"Filekey must be '{FILEKEY_EXT}'.")
             return False
 
     # - The filekey will be created -
@@ -351,7 +404,7 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
             return False
         
         if exists(filekey + FILEKEY_EXT):
-            print(f"{filekey} already exists.")
+            _fmt_err(f"{filekey} already exists.")
             return False
 
     return True
@@ -375,14 +428,14 @@ def valid_filekey_key(filekey: str) -> bool:
 
     # Step 1 — must be valid urlsafe base64
     if not valid_b64_urlsafe(content):
-        print("Invalid key format: not a valid base64 urlsafe string.")
+        _fmt_err("Invalid key format: not a valid base64 urlsafe string.")
         return False
 
     # Step 2 — decoded bytes must be exactly 32 (Fernet requirement)
     import base64 as _b64
     decoded = _b64.urlsafe_b64decode(content)
     if len(decoded) != 32:
-        print(f"Invalid key length: expected 32 bytes, got {len(decoded)}.")
+        _fmt_err(f"Invalid key length: expected 32 bytes, got {len(decoded)}.")
         return False
 
     return True
@@ -415,12 +468,11 @@ def valid_password(psw: str) -> bool:
     blacklist = [' ']
 
     if not isinstance(psw, str):
-        print(f"psw must be a str type, {type(psw)} given.")
+        _fmt_err(f"psw must be a str type, {type(psw)} given.")
         return False
 
     if len(psw) < MIN_LENGTH:
-        print(f"Password must be at least {MIN_LENGTH} "
-              "characters long.")
+        _fmt_err(f"Password must be at least {MIN_LENGTH} characters long.")
         return False
     
     for char in psw:
@@ -494,21 +546,16 @@ def clean():
     """
     try:
         pyperclip.copy("")
-        print("The clipboard has been erased.")
+        _fmt_ok("Clipboard erased.")
 
     except pyperclip.PyperclipException:
-        # pyperclip has no mechanism available — try native Linux tools
         if USER_OS == "linux":
             if _clean_linux_native():
-                print("The clipboard has been erased.")
+                _fmt_ok("Clipboard erased.")
             else:
-                # Nothing worked: inform the user clearly
                 _clipboard_no_mechanism_msg()
-                print("")
-                print("Alternatively, you can clear the clipboard manually")
-                print("by copying any innocuous text (e.g. a space).")
+                _fmt_info("Alternatively, clear it manually by copying any innocuous text.")
         else:
-            # Non-Linux system: re-raise, this is unexpected
             raise
 
 def _copy_linux_native(text: str) -> bool:
@@ -553,13 +600,13 @@ def _clipboard_no_mechanism_msg() -> None:
 
     Factored out to keep copy_filekey() and clean() DRY.
     """
-    print("Unable to access the clipboard automatically.")
-    print("No clipboard utility was found on this system.")
-    print("")
-    print("You can install one of the following tools:")
-    print("  X11     : sudo apt-get install xclip")
-    print("            sudo apt-get install xsel")
-    print("  Wayland : sudo apt-get install wl-clipboard")
+    _fmt_warn(
+        "No clipboard mechanism found.",
+        "Install one of the following tools:\n"
+        "  X11     : sudo apt-get install xclip\n"
+        "            sudo apt-get install xsel\n"
+        "  Wayland : sudo apt-get install wl-clipboard"
+    )
 
 def copy_filekey(filekey: str):
     """Copies the Base64 key stored in a filekey to the clipboard.
@@ -585,16 +632,14 @@ def copy_filekey(filekey: str):
 
     try:
         pyperclip.copy(key)
-        print("Key copied to clipboard.")
-        print("Don't forget to clean the clipboard after use "
-              "('clean' command).")
+        _fmt_ok("Key copied to clipboard.")
+        _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
 
     except pyperclip.PyperclipException:
         if USER_OS == "linux":
             if _copy_linux_native(key):
-                print("Key copied to clipboard.")
-                print("Don't forget to clean the clipboard after use "
-                      "('clean' command).")
+                _fmt_ok("Key copied to clipboard.")
+                _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
             else:
                 _clipboard_no_mechanism_msg()
         else:
@@ -621,7 +666,7 @@ def read_filekey(filekey: str, return_value: bool = False) -> str | None:
         with open(filekey, "r") as f:
                 content = f.read()
                 if not return_value:
-                    print(content)
+                    _fmt_info(content)
                 else:
                     return content
     else:
@@ -657,9 +702,9 @@ def create_filekey(file_name: str, key: str):
     if valid_b64_urlsafe(key_bytes):
         with open(file_name + FILEKEY_EXT, 'wb') as f:
             f.write(key_bytes)
-        print(f"{file_name + FILEKEY_EXT} has been created in the current folder.")
+        _fmt_ok(f"{file_name + FILEKEY_EXT} created in the current folder.")
     else:
-        print("Invalid key, must be base64 urlsafe.")
+        _fmt_err("Invalid key, must be base64 urlsafe.")
         sys.exit(1)
 
 @safety_check
@@ -712,20 +757,20 @@ def secure_delete(filename: str, encryption_passes: int = 2,
     is_folder = False
 
     if not isinstance(filename, str):
-        print("filename must be a str.")
+        _fmt_err("filename must be a str.")
         sys.exit(1)
     
     elif not isinstance(encryption_passes, int) or encryption_passes < 0:
-        print("Invalid 'encryption_passes' arg. Must be an integer >= 0.")
+        _fmt_err("Invalid 'encryption_passes' arg. Must be an integer >= 0.")
         sys.exit(1)
     
     elif not in_current_folder(filename):
-        print(f"{filename} not in the current folder.")
+        _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
     
     # Prevents script from killing itself 
     elif filename == SCRIPT_PATH or filename == SCRIPT_NAME:
-        print("The script cannot delete itself.")
+        _fmt_err("I'm sorry user, I'm afraid I can't do that. Deleting myself is not in my programming.")
         sys.exit(1)
 
     # Early folder detection (before confirmation)
@@ -742,34 +787,32 @@ def secure_delete(filename: str, encryption_passes: int = 2,
             if is_folder:
                 # Count all files in the folder (recursively)
                 file_count = sum(len(files) for _, _, files in walk(filename))
-                print(f"You are about to irreversibly delete the "
-                      f"folder '{filename}' and all its contents.")
-                print(f"From: {abspath(filename)}")
-                print(f"Files to delete: {file_count}")
+                _fmt_warn(
+                    f"You are about to irreversibly delete the folder '{filename}'.",
+                    f"Location : {abspath(filename)}\n"
+                    f"Files    : {file_count}")
             elif is_filekey:
-                print("You are about to irreversibly delete the " 
-                    f"filekey '{filename}', if it's still "
-                    "useful for decrypting a file, please "
-                    "note its key in a safe place before "
-                    "deleting it ('read' command).")
-                print(f"From: {abspath(filename)}")
+                _fmt_warn(
+                    f"You are about to irreversibly delete the filekey '{filename}'.",
+                    "If it's still needed for decryption, note its key first ('read' command).\n"
+                    f"Location : {abspath(filename)}")
             else:
                 original_file_size = getsize(filename)
-                print("You are about to irreversibly delete " 
-                    f"the file '{filename}'.")
-                print(f"From: {abspath(filename)}")
-                print(f"File size: {round(original_file_size/1024, 3)} ko")
+                _fmt_warn(
+                    f"You are about to irreversibly delete '{filename}'.",
+                    f"Location : {abspath(filename)}\n"
+                    f"Size     : {round(original_file_size/1024, 3)} ko")
 
-            choice = input("Do you confirm this operation? (y/n): ")
+            choice = input(_fmt_ask("Confirm? (y/n): "))
             choice = choice.lower()
 
             if choice == "y":
                 pass
             elif choice == "n":
-                print("Exiting...")
+                _fmt_info("Cancelled.")
                 sys.exit(0)
             else:
-                print("Invalid input.")
+                _fmt_err("Invalid input.")
                 continue
 
     # Get original file size (only needed for files, after confirmation)
@@ -779,7 +822,7 @@ def secure_delete(filename: str, encryption_passes: int = 2,
     # TARGET IS A FOLDER
     if is_folder:
         if not silent_mode:
-            print(f"Processing folder '{filename}'...")
+            _fmt_header(f"Deleting folder · {filename}")
 
         # Securely delete each file inside the folder recursively
         for root, dirs, files in walk(filename):
@@ -791,15 +834,15 @@ def secure_delete(filename: str, encryption_passes: int = 2,
         try:
             rmtree(filename, onerror=handle_remove_readonly)
             if not silent_mode:
-                print(f"Folder '{filename}' has been deleted.")
+                _fmt_ok(f"Folder '{filename}' deleted.")
         except Exception as e:
-            print(f"Error removing folder '{filename}': {e}")
+            _fmt_err(f"Error removing folder '{filename}': {e}")
         
         return  # End of function for folder case
     
     if not silent_mode:
         if encryption_passes > 0:
-            print("Encryption...")
+            _fmt_step("Overwriting...")
 
     # Encryption passes
     for i in range(encryption_passes):
@@ -831,9 +874,9 @@ def secure_delete(filename: str, encryption_passes: int = 2,
                 file.write(encrypted_data)
 
             if encryption_passes > 1 and not silent_mode:
-                print(f"Pass {i + 1}/{encryption_passes} completed.")
+                _fmt_step(f"Pass {i + 1}/{encryption_passes} completed.")
         except Exception as e:
-            print(f"Error during encryption pass {i + 1}: {e}.")
+            _fmt_err(f"Error during encryption pass {i + 1}: {e}.")
             raise
 
     # File truncation and shuffle
@@ -843,12 +886,12 @@ def secure_delete(filename: str, encryption_passes: int = 2,
         with open(filename, "r+b") as f:
             # Truncates the file to its original size
             if not silent_mode:
-                print("Resizing...")
+                _fmt_step("Resizing...")
             f.truncate(original_file_size)
 
             if shuffle:
                 if not silent_mode:
-                    print("Shuffling...")
+                    _fmt_step("Shuffling bytes...")
                 # Bytes type is immutable, so we transform
                 # it into a bytearray, which is a mutable 
                 # sequence.
@@ -871,7 +914,7 @@ def secure_delete(filename: str, encryption_passes: int = 2,
 
     remove(filename)  # Delete the file after encryption
     if not silent_mode:
-        print(f"'{filename}' has been deleted.")
+        _fmt_ok(f"'{filename}' deleted.")
 
 @safety_check
 def zip_files(targets: list, delete: bool = False):
@@ -885,45 +928,44 @@ def zip_files(targets: list, delete: bool = False):
     # Preliminary check of all files
     for target in targets:
         if not in_current_folder(target):
-            print(f"{target} not in the current folder.")
+            _fmt_err(f"{target} is not in the current folder.")
             sys.exit(1)
         if target == SCRIPT_PATH or target == SCRIPT_NAME:
-            print("The script cannot zip itself.")
+            _fmt_err("I'm sorry user, I'm afraid I can't do that. Deleting myself is not in my programming.")
             sys.exit(1)
 
     zip_filename = "archive.zip"
 
     # If archive.zip already exist, we request a new name
     if exists(zip_filename):
-        print(f"'{zip_filename}' already exists.")
+        _fmt_warn(f"An archive named '{zip_filename}' already exists.")
         while True:
             # Naming without extension
             custom_name = input("Enter a name for the archive (without extension): ").strip()
             
             if not custom_name:
-                print("Name cannot be empty.")
+                _fmt_err("Name cannot be empty.")
                 continue
             
             zip_filename = custom_name + ".zip"
             
             # We're also checking if this new name is available.
             if exists(zip_filename):
-                print(f"'{zip_filename}' also exists. Please choose another name.")
+                _fmt_err(f"'{zip_filename}' also exists. Please choose another name.")
             else:
                 break
 
     # User confirmation for deletion
     if delete:
-        print("Compression will delete the following targets:")
-        for target in targets:
-            print(f"- {target}")
-        
-        choice = input("Do you confirm the operation ? (y/n): ").lower()
+        _fmt_warn(
+            "The following targets will be deleted after compression:",
+            "\n".join(f"  - {t}" for t in targets))
+        choice = input(_fmt_ask("Confirm? (y/n): ")).lower()
         if choice != 'y':
-            print("Cancellation...")
+            _fmt_info("Cancelled.")
             sys.exit(0)
 
-    print("Zipping...")
+    _fmt_header(f"Zipping · {', '.join(targets)}")
     with ZipFile(zip_filename, 'w', ZIP_DEFLATED) as zipf:
         for target_to_zip in targets:
             # Targer is a folder
@@ -933,39 +975,39 @@ def zip_files(targets: list, delete: bool = False):
                         file_path = join(root, file)
                         arch_name = join(basename(target_to_zip), relpath(file_path, start=target_to_zip))
                         zipf.write(file_path, arcname=arch_name)
-                        print(f"Added: {file_path}")
+                        _fmt_step(f"Added: {file_path}")
                 
                 if delete:
                     # Recursive deletion logic
                     total_files = sum([len(files) for r, d, files in walk(target_to_zip)])
-                    print(f"Deleting files in {target_to_zip}...")
+                    _fmt_step(f"Deleting source files in {target_to_zip}...")
                     deleted_files = 0
                     for root, dirs, files in walk(target_to_zip):
                         for file in files:
                             secure_delete(join(root, file), silent_mode=True)
                             deleted_files += 1
-                            print(f"File deletion {deleted_files}/{total_files}")
+                            _fmt_step(f"Deleted {deleted_files}/{total_files}")
                     
                     # Once the files are deleted, the empty folder is deleted. 
                     # We use `onerror` to handle stubborn cases in Windows.
                     try:
                         rmtree(target_to_zip, ignore_errors=False, onerror=handle_remove_readonly)
-                        print(f"Folder {target_to_zip} removed.")
+                        _fmt_step(f"Folder {target_to_zip} removed.")
                     except Exception as e:
-                        print(f"Could not remove folder {target_to_zip}: {e}")
+                        _fmt_err(f"Could not remove folder {target_to_zip}: {e}")
 
             # Target is a file
             elif isfile(target_to_zip):
                 zipf.write(target_to_zip, arcname=basename(target_to_zip))
-                print(f"Added : {target_to_zip}")
+                _fmt_step(f"Added: {target_to_zip}")
                 
                 if delete:
                     secure_delete(target_to_zip, silent_mode=True)
             
             else:
-                print(f"Skipping {target_to_zip}: neither a file nor a folder.")
+                _fmt_step(f"Skipping {target_to_zip}: neither a file nor a folder.")
 
-    print(f"'{zip_filename}' created successfully.")
+    _fmt_ok(f"'{zip_filename}' created successfully.")
             
 @safety_check
 def unzip_file(arch_name: str):
@@ -977,23 +1019,22 @@ def unzip_file(arch_name: str):
     """
     
     if not in_current_folder(arch_name):
-        print(f"{arch_name} not in the current folder.")
+        _fmt_err(f"{arch_name} is not in the current folder.")
         sys.exit(1)
     
     try:
         with ZipFile(arch_name, 'r') as zipf:
-            print(f"Unzipping {arch_name}...")
+            _fmt_header(f"Unzipping · {arch_name}")
             zipf.extractall()
-        print(f"{arch_name} extracted successfully.")
+        _fmt_ok(f"{arch_name} extracted successfully.")
     except FileNotFoundError as e:
-        print(f"Error : Archive not found : {e}")
+        _fmt_err(f"Archive not found: {e}")
         sys.exit(1)
     except BadZipFile:
-        print("Invalid archive. If the archive is encrypted, "
-              "please decrypt it first.")
+        _fmt_err("Invalid archive. If the archive is encrypted, please decrypt it first.")
         sys.exit(1)
     except OSError as e:
-        print(f"Error during the extraction : {e}")
+        _fmt_err(f"Error during the extraction: {e}")
         sys.exit(1)
 
 def since_when(token_timestamp: int) -> str:
@@ -1098,7 +1139,7 @@ def get_timestamp(encrypted_file: str,
         int : The Unix timestamp of the token
     """
     if not exists(encrypted_file):
-        print(f"{encrypted_file} not found.")
+        _fmt_err(f"File '{encrypted_file}' not found.")
         sys.exit(1)
     
     # From a file encrypted with a filekey
@@ -1127,28 +1168,27 @@ def get_timestamp(encrypted_file: str,
         token = raw[16:]
 
         if len(salt_bytes) < 16:
-            print("Error: file too short to contain an embedded salt.")
+            _fmt_err("File too short to contain an embedded salt.")
             sys.exit(1)
 
         f, _ = psw_derivation(psw, salt_bytes)
 
     # ERROR
     else:
-        print("Wrong args combination, must be :")
-        print("encrypted_file + filekey OR encrypted_file + --password.")
+        _fmt_err("Wrong args combination: use filekey or --password.")
         sys.exit(1)
 
     try:
         timestamp = f.extract_timestamp(token)
         readable_time = dt.fromtimestamp(timestamp)
-        print("- - - - - - - - - - - - - - - - - - - -")
-        print(f"{encrypted_file} was encrypted at " 
-            f": {readable_time}")
-        print(f"Since {since_when(timestamp)}")
-        print(f"Timestamp : {timestamp}")
-        print("- - - - - - - - - - - - - - - - - - - -")
+        _fmt_result({
+            "File"      : encrypted_file,
+            "Encrypted" : str(readable_time),
+            "Since"     : since_when(timestamp),
+            "Timestamp" : str(timestamp),
+        }, title="Timestamp")
     except Exception as e:
-        print(e)
+        _fmt_err(str(e))
         raise
 
 def psw_gen(length=17, include_uppercase=True,
@@ -1218,20 +1258,18 @@ def psw_gen(length=17, include_uppercase=True,
         else:
             break
 
-    print(password)
+    _fmt_info(password)
 
     if copy_secret:
         try:
             pyperclip.copy(password)
-            print("Password copied to clipboard.")
-            print("Don't forget to clean the clipboard after use "
-                  "('clean' command).")
+            _fmt_ok("Password copied to clipboard.")
+            _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
         except pyperclip.PyperclipException:
             if USER_OS == "linux":
                 if _copy_linux_native(password):
-                    print("Password copied to clipboard.")
-                    print("Don't forget to clean the clipboard after use "
-                          "('clean' command).")
+                    _fmt_ok("Password copied to clipboard.")
+                    _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
                 else:
                     _clipboard_no_mechanism_msg()
             else:
@@ -1340,10 +1378,10 @@ def encrypt(filename: str, overwrite: bool = True,
     """
     
     if not in_current_folder(filename):
-        print(f"{filename} not in the current folder.")
+        _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
     
-    print(f"---- Encryption of {filename} ----")
+    _fmt_header(f"Encryption · {filename}")
 
     # No password given : function will be dealing with a filekey
     if psw is None:
@@ -1363,12 +1401,11 @@ def encrypt(filename: str, overwrite: bool = True,
                 if valid_filename(choice):
                     generated_filekey_name = choice + FILEKEY_EXT
                 else:
-                    print("Invalid file name, please avoid spaces"
-                    " and symbols.")
+                    _fmt_err("Invalid file name, please avoid spaces and symbols.")
                     continue
 
             # Filekey generation
-            print(f"Filekey generation ({generated_filekey_name})...")
+            _fmt_step(f"Generating filekey ({generated_filekey_name})...")
             key = Fernet.generate_key()
             with open(generated_filekey_name, 'wb') as filekey:
                 filekey.write(key)
@@ -1382,15 +1419,15 @@ def encrypt(filename: str, overwrite: bool = True,
 
         # Filekey reading and retrieved as bytes
         if given_filekey is None:
-            print("Generated filekey reading...")
+            _fmt_step("Reading generated filekey...")
         else:
-            print(f"Given filekey reading ({generated_filekey_name})...")
+            _fmt_step(f"Reading given filekey ({generated_filekey_name})...")
 
         try:
             with open(generated_filekey_name, 'rb') as filekey:
                 key = filekey.read() # key = bytes
         except FileNotFoundError:
-            print(f"Error : No such keyfile : {filename} in the current folder.")
+            _fmt_err(f"No such keyfile in the current folder.")
             sys.exit(1)
 
         # Fernet object creation with the generated key
@@ -1411,46 +1448,43 @@ def encrypt(filename: str, overwrite: bool = True,
         name += "(copy)"
         ext = filename[filename.find('.'):]
         copy_filename = name + ext
-        print("File copy before overwriting...")
+        _fmt_step("Copying file before overwriting...")
         try:
             copyfile(filename, copy_filename)
         except FileNotFoundError:
-            print(f"Error : No such file : {filename} " 
-                  "in the current folder.")
+            _fmt_err(f"No such file: '{filename}' in the current folder.")
             if psw is None:
                 remove(generated_filekey_name)
             sys.exit(1)
         
     # Recovery the file to be encrypted in bytes
-    print(f"{filename} reading...")
+    _fmt_step(f"Reading {filename}...")
     try:
         with open(filename, 'rb') as file:
-            file_bytes = file.read() # file_bytes = bytes
+            file_bytes = file.read()
     except FileNotFoundError:
-        print(f"Error : No such file : {filename} in the "
-              "current folder.")
+        _fmt_err(f"No such file: '{filename}' in the current folder.")
         if psw is None:
             remove(generated_filekey_name)
         sys.exit(1)
 
     # Bytes data encryption
-    print(f"Data encryption...")
+    _fmt_step("Encrypting data...")
     encrypted = f.encrypt(file_bytes)
 
     # Overwriting the file with encrypted bytes data
     # In password mode: prepend the raw 16-byte salt so it can be
     # recovered automatically at decryption time.
-    print(f"Encrypted data writing...")
+    _fmt_step("Writing encrypted data...")
     with open(filename, 'wb') as encrypted_file:
         if psw is not None:
             encrypted_file.write(salt_bytes + encrypted)
         else:
             encrypted_file.write(encrypted)
 
-    print(f"---- Operation completed successfully ----")
+    _fmt_ok()
     if given_filekey is None and psw is None:
-        print("A keyfile has been generated in the " 
-              "current folder, please keep it safe.")
+        _fmt_info("A filekey has been generated in the current folder. Keep it safe.")
 
     # Copy the filekey's Base64 key to the clipboard if requested
     # (filekey mode only; in password mode the salt is embedded in the
@@ -1461,15 +1495,13 @@ def encrypt(filename: str, overwrite: bool = True,
 
         try:
             pyperclip.copy(secret_to_copy)
-            print(f"{secret_label} copied to clipboard.")
-            print("Don't forget to clean the clipboard after use "
-                  "('clean' command).")
+            _fmt_ok(f"{secret_label} copied to clipboard.")
+            _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
         except pyperclip.PyperclipException:
             if USER_OS == "linux":
                 if _copy_linux_native(secret_to_copy):
-                    print(f"{secret_label} copied to clipboard.")
-                    print("Don't forget to clean the clipboard after use "
-                          "('clean' command).")
+                    _fmt_ok(f"{secret_label} copied to clipboard.")
+                    _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
                 else:
                     _clipboard_no_mechanism_msg()
             else:
@@ -1507,37 +1539,36 @@ def decrypt(filename: str,
     """
     
     if not in_current_folder(filename):
-        print(f"{filename} not in the current folder.")
+        _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
 
-    print(f"---- Decryption of {filename} ----")
+    _fmt_header(f"Decryption · {filename}")
 
     # ── Filekey mode ─────────────────────────────────────────────────
     if psw is None:
         if not valid_filekey(filekey_name):
             sys.exit(1)
 
-        print(f"Filekey reading ({filekey_name})...")
+        _fmt_step(f"Reading filekey ({filekey_name})...")
         try:
             with open(filekey_name, 'rb') as filekey:
                 key = filekey.read()
         except FileNotFoundError:
-            print(f"Error : No such filekey : '{filekey_name}'"
-            " in the current folder.")
+            _fmt_err(f"No such filekey: '{filekey_name}' in the current folder.")
             sys.exit(1)
 
         try:
             f = Fernet(key)
         except ValueError as e:
-            print(f"Error : Invalid filekey — {e}")
+            _fmt_err(f"Invalid filekey — {e}")
             sys.exit(1)
 
-        print(f"{filename} reading...")
+        _fmt_step(f"Reading {filename}...")
         try:
             with open(filename, 'rb') as ef:
                 encrypted = ef.read()
         except FileNotFoundError:
-            print(f"Error : No such file : '{filename}' in the current folder")
+            _fmt_err(f"No such file: '{filename}' in the current folder.")
             sys.exit(1)
 
     # ── Password mode ─────────────────────────────────────────────────
@@ -1546,37 +1577,37 @@ def decrypt(filename: str,
         if not valid_password(psw):
             sys.exit(1)
 
-        print(f"{filename} reading...")
+        _fmt_step(f"Reading {filename}...")
         try:
             with open(filename, 'rb') as ef:
                 raw = ef.read()
         except FileNotFoundError:
-            print(f"Error : No such file : '{filename}' in the current folder")
+            _fmt_err(f"No such file: '{filename}' in the current folder.")
             sys.exit(1)
 
         if len(raw) < 17:
-            print("Error: file too short to contain an embedded salt.")
+            _fmt_err("File too short to contain an embedded salt.")
             sys.exit(1)
 
         salt_bytes = raw[:16]
         encrypted  = raw[16:]
-        print("Salt recovered from file...")
+        _fmt_step("Salt recovered from file...")
         f, _ = psw_derivation(psw, salt_bytes)
 
     # File data decryption
-    print("Decrypting data...")
+    _fmt_step("Decrypting data...")
     try:
         decrypted = f.decrypt(encrypted)
     except InvalidToken:
-        print("Error : Invalid Fernet token")
+        _fmt_err("Invalid Fernet token — wrong key or corrupted file.")
         sys.exit(1)
 
     # Overwriting the file with decrypted bytes
-    print(f"{filename} writing...")
+    _fmt_step(f"Writing {filename}...")
     with open(filename, 'wb') as decrypted_file:
         decrypted_file.write(decrypted)
 
-    print(f"---- Operation completed successfully ----")
+    _fmt_ok()
 
 def verify(filename: str,
            filekey_name: Union[str, None] = None,
@@ -1611,11 +1642,11 @@ def verify(filename: str,
         Wrong key/password : informs user, sys.exit(1)
     """
     if not in_current_folder(filename):
-        print(f"{filename} not in the current folder.")
+        _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
 
     if not exists(filename):
-        print(f"Error: \'{filename}\' not found in the current folder.")
+        _fmt_err(f"File '{filename}' not found in the current folder.")
         sys.exit(1)
 
     # ── Filekey mode ──────────────────────────────────────────────────
@@ -1627,13 +1658,13 @@ def verify(filename: str,
             with open(filekey_name, 'rb') as fk:
                 key = fk.read()
         except FileNotFoundError:
-            print(f"Error: filekey \'{filekey_name}\' not found.")
+            _fmt_err(f"Filekey '{filekey_name}' not found.")
             sys.exit(1)
 
         try:
             f = Fernet(key)
         except ValueError as e:
-            print(f"Error: Invalid filekey — {e}")
+            _fmt_err(f"Invalid filekey — {e}")
             sys.exit(1)
 
         key_label = f"Filekey \'{filekey_name}\'"
@@ -1642,7 +1673,7 @@ def verify(filename: str,
             with open(filename, 'rb') as ef:
                 encrypted = ef.read()
         except FileNotFoundError:
-            print(f"Error: \'{filename}\' not found in the current folder.")
+            _fmt_err(f"File '{filename}' not found in the current folder.")
             sys.exit(1)
 
     # ── Password mode ─────────────────────────────────────────────────
@@ -1655,11 +1686,11 @@ def verify(filename: str,
             with open(filename, 'rb') as ef:
                 raw = ef.read()
         except FileNotFoundError:
-            print(f"Error: \'{filename}\' not found in the current folder.")
+            _fmt_err(f"File '{filename}' not found in the current folder.")
             sys.exit(1)
 
         if len(raw) < 17:
-            print("Error: file too short to contain an embedded salt.")
+            _fmt_err("File too short to contain an embedded salt.")
             sys.exit(1)
 
         salt_bytes = raw[:16]
@@ -1670,14 +1701,11 @@ def verify(filename: str,
     # Attempt in-memory decryption — result is intentionally discarded
     try:
         f.decrypt(encrypted)
-        print(f"\u2713 Verification successful.")
-        print(f"  {key_label} can decrypt \'{filename}\'.")
+        f.decrypt(encrypted)
+        _fmt_ok(f"Verification successful — {key_label} can decrypt '{filename}'.")
     except InvalidToken:
-        print(f"\u2717 Verification failed.")
-        print(f"  {key_label} cannot decrypt \'{filename}\'.")
-        print("  The password may be wrong, or the file may not be "
-              "a valid password-encrypted Fernet token.")
-        sys.exit(1)
+        _fmt_err(f"Verification failed — {key_label} cannot decrypt '{filename}'.\n"
+                 "The password may be wrong, or the file may not be a valid Fernet token.")
 
 def get_salt(filename: str, copy_secret: bool = False) -> None:
     """Extracts and displays the salt embedded in a password-encrypted file.
@@ -1700,40 +1728,38 @@ def get_salt(filename: str, copy_secret: bool = False) -> None:
         File too short        : sys.exit(1)
     """
     if not in_current_folder(filename):
-        print(f"{filename} not in the current folder.")
+        _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
 
     if not exists(filename):
-        print(f"Error: '{filename}' not found in the current folder.")
+        _fmt_err(f"File '{filename}' not found in the current folder.")
         sys.exit(1)
 
     try:
         with open(filename, 'rb') as f:
             salt_bytes = f.read(16)
     except OSError as e:
-        print(f"Error reading '{filename}': {e}")
+        _fmt_err(f"Error reading '{filename}': {e}")
         sys.exit(1)
 
     if len(salt_bytes) < 16:
-        print("Error: file too short to contain an embedded salt.")
-        print("This file may not have been encrypted with a password.")
+        _fmt_err("File too short to contain an embedded salt.\n"
+                 "This file may not have been encrypted with a password.")
         sys.exit(1)
 
     salt_b64 = base64.urlsafe_b64encode(salt_bytes).decode('ascii')
-    print(f"Salt: {salt_b64}")
+    _fmt_result({"Salt": salt_b64}, title="Embedded salt")
 
     if copy_secret:
         try:
             pyperclip.copy(salt_b64)
-            print("Salt copied to clipboard.")
-            print("Don't forget to clean the clipboard after use "
-                  "('clean' command).")
+            _fmt_ok("Salt copied to clipboard.")
+            _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
         except pyperclip.PyperclipException:
             if USER_OS == "linux":
                 if _copy_linux_native(salt_b64):
-                    print("Salt copied to clipboard.")
-                    print("Don't forget to clean the clipboard after use "
-                          "('clean' command).")
+                    _fmt_ok("Salt copied to clipboard.")
+                    _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
                 else:
                     _clipboard_no_mechanism_msg()
             else:
@@ -1972,8 +1998,7 @@ def main():
     elif args.command == "timestamp":
         # Conflict
         if args.filekey and args.password:
-            print("ERROR : You must provide either a 'filekey' or a "
-                "'--password'.")
+            _fmt_err("You must provide either a 'filekey' or '--password'.")
             sys.exit(1)
 
         # File encrypted with a filekey
@@ -1983,16 +2008,16 @@ def main():
 
         # Password mode: salt is recovered automatically from the file
         elif args.password:
-            password = get_confidential_input("Password: ")
+            password = get_confidential_input(_fmt_ask("Password: "))
             get_timestamp(encrypted_file=args.encrypted_file,
                           psw=password)
 
         else:
-            print("Wrong command combination.")
+            _fmt_err("Wrong command combination.")
             sys.exit(1)
 
     elif args.command == "create":
-        key = get_confidential_input("Key: ")
+        key = get_confidential_input(_fmt_ask("Key: "))
         create_filekey(args.filename, key)
     
     elif args.command == "delete":
@@ -2002,26 +2027,25 @@ def main():
 
         # Multiple targets : one global confirmation before processing
         else:
-            print("You are about to irreversibly delete the following targets:")
-            for filename in args.filenames:
-                if isdir(filename):
-                    file_count = sum(len(files) for _, _, files in walk(filename))
-                    print(f"  [folder] {filename}/ ({file_count} file(s))")
-                else:
-                    print(f"  [file]   {filename}")
+            targets_summary = "\n".join(
+                f"  [folder] {fn}/ ({sum(len(f) for _,_,f in walk(fn))} files)"
+                if isdir(fn) else f"  [file]   {fn}"
+                for fn in args.filenames
+            )
+            _fmt_warn("You are about to irreversibly delete:", targets_summary)
 
             choice = None
             while choice != "y" and choice != "n":
-                choice = input("Do you confirm this operation? (y/n): ").lower()
+                choice = input(_fmt_ask("Confirm? (y/n): ")).lower()
                 if choice == "n":
-                    print("Exiting...")
+                    _fmt_info("Cancelled.")
                     sys.exit(0)
                 elif choice != "y":
-                    print("Invalid input.")
+                    _fmt_err("Invalid input.")
 
             for filename in args.filenames:
                 secure_delete(filename, shuffle=args.shuffle, silent_mode=True)
-                print(f"  '{filename}' has been deleted.")
+                _fmt_info(f"'{filename}' deleted.")
     
     elif args.command == "zip":
         zip_files(args.targets, args.delete)
@@ -2039,12 +2063,11 @@ def main():
         password = None
 
         if args.password and args.filekey:
-            print("ERROR : You must provide either a 'filekey' or a "
-                "'--password'.")
+            _fmt_err("You must provide either a 'filekey' or '--password'.")
             sys.exit(1)
 
         if args.password:
-            password = get_confidential_input("Password: ")
+            password = get_confidential_input(_fmt_ask("Password: "))
 
         if args.overwrite:
             encrypt(args.filename, overwrite=True,
@@ -2056,7 +2079,7 @@ def main():
             # --copy explicitly given, or neither option provided
             # (--copy is the default for safety)
             if not args.copy:
-                print("Note: no mode specified, defaulting to --copy")
+                _fmt_info("Note: no mode specified, defaulting to --copy.")
             encrypt(args.filename, overwrite=False,
                     given_filekey=args.filekey,
                     psw=password,
@@ -2065,13 +2088,12 @@ def main():
     elif args.command == "decrypt":
         # Wrong command
         if (args.password is None and args.filekey is None) or (args.password and args.filekey):
-            print("ERROR : You must provide either a 'filekey' or a "
-                "'--password'.")
+            _fmt_err("You must provide either a 'filekey' or '--password'.")
             sys.exit(1)
 
         # Password mode: salt is recovered automatically from the file
         elif args.password:
-            password = get_confidential_input("Password: ")
+            password = get_confidential_input(_fmt_ask("Password: "))
             decrypt(args.filename, psw=password)
 
         # Filekey mode
@@ -2081,19 +2103,17 @@ def main():
     elif args.command == "verify":
         # Conflict : both filekey and --password provided
         if args.filekey and args.password:
-            print("ERROR : You must provide either a 'filekey' or "
-                  "'--password', not both.")
+            _fmt_err("You must provide either a 'filekey' or '--password', not both.")
             sys.exit(1)
 
         # Neither provided
         elif not args.filekey and not args.password:
-            print("ERROR : You must provide either a 'filekey' or "
-                  "'--password'.")
+            _fmt_err("You must provide either a 'filekey' or '--password'.")
             sys.exit(1)
 
         # Password mode: salt is recovered automatically from the file
         elif args.password:
-            password = get_confidential_input("Password: ")
+            password = get_confidential_input(_fmt_ask("Password: "))
             verify(args.filename, psw=password)
 
         # Filekey mode
@@ -2104,7 +2124,7 @@ def main():
         get_salt(args.filename, copy_secret=args.copysecret)
 
     else:
-        print("ERROR : Unknown argument.")
+        _fmt_err("Unknown argument.")
         sys.exit(1)
 
 if __name__ == "__main__":

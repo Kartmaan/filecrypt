@@ -28,6 +28,7 @@
     - [Key](#key)
     - [Token](#token)
   - [Script SAFE\_MODE](#script-safe_mode)
+  - [Why a standalone script ?](#why-a-standalone-script-)
 
 # Filecrypt
 <img width="380" height="380" alt="filecrypt_logo" src="https://github.com/user-attachments/assets/2a140939-496e-4f93-b14f-ec947575661a" />
@@ -559,3 +560,22 @@ Commands **still accessible** in SAFE_MODE :
 - copykey
 - verify
 - clean
+
+## Why a standalone script ?
+This is an approach that has several real advantages, especially for a tool of this type.
+
+**Total Portability**
+
+The script is a single file, it can be copied to a USB drive, moved to a new machine, or shared via email. It runs on Windows, Linux, and macOS as long as Python is installed.
+
+**Limited Attack Surface by Design**
+
+The fact that the script can only access its current directory is a natural consequence of the standalone model — and a welcome security property. An encryption tool that can traverse the entire file system poses a much greater risk in case of mishandling. Here, the scope is implicitly bounded by design.
+
+**Explicit Working Context**
+
+Placing the script in the target directory creates a clear and deliberate intent: the user knows exactly where they are operating. This prevents path errors and makes each action more conscious.
+
+**No system pollution**
+
+No PATH or registry entries, no background services, no global configuration files. When the operation is complete, the script can be removed, and nothing remains. This is a significant advantage in environments where you want to minimize traces or work on a machine that doesn't belong to you.
