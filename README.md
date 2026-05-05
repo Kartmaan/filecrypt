@@ -34,7 +34,7 @@
 <img width="380" height="380" alt="filecrypt_logo" src="https://github.com/user-attachments/assets/2a140939-496e-4f93-b14f-ec947575661a" />
 
 
-This Python script encrypts/decrypts files located in the script's current folder. The program is based on **Fernet**, an implementation of the AES-128 algorithm.
+Filecrypt is a versatile Python toolkit designed for secure file management. While its core functionality relies on Fernet (AES-128) for robust file encryption and decryption, it also features integrated utilities for secure file deletion, ZIP archiving, and a strong password generator. It provides an all-in-one solution for handling sensitive data directly from your terminal.
 
 > For security reasons, the script can only be placed in a non-sensitive area of the system, and can only access its current folder. If the script is placed in a sensitive area, SAFE_MODE is activated, preventing the call of any file-modifying function (see 'Some technical details' section for more information).
 
@@ -63,7 +63,7 @@ These three methods are mutually exclusive, but **must** include the name of the
 **Options**
 - `-ow` / `--overwrite` : the file will be overwritten by its encrypted version (*in the case of an image file for example, it will therefore become corrupted*)
 - `-c` / `--copy` : the plaintext file will be copied before being overwritten by its encrypted version.
-- `-cs` / `--copysecret` : automatically copies the Base64 secret key contained in the generated filekey to the clipboard. In password mode, this option has no effect — the salt is embedded in the file and can be retrieved with the `getsalt` command.
+- `-cs` / `--copysecret` : automatically copies the Base64 secret key contained in the generated filekey to the clipboard. In password mode, this option has no effect, the salt is embedded in the file and can be retrieved with the `getsalt` command.
 
 > **Note**: The `-c` / `--copy` and `-ow` / `--overwrite` options are mutually exclusive but optional: if no option is added, the `--copy` option will be enabled by default for security reasons. This allows for a more concise syntax:
 > 
@@ -93,7 +93,7 @@ The `-f`/`--filekey` option lets us specify the filekey to be used
 
 ### **Method 3** : By using a password
 
-The `-p` / `--password` option encrypts the file using a password. A random 16-byte salt is generated automatically by the script and **embedded directly in the encrypted file** as a prefix. The user never needs to see, note, or re-enter the salt — it travels with the file and is recovered automatically at decryption time.
+The `-p` / `--password` option encrypts the file using a password. A random 16-byte salt is generated automatically by the script and **embedded directly in the encrypted file** as a prefix. The user never needs to see, note, or re-enter the salt, it travels with the file and is recovered automatically at decryption time.
 
 Let's say we have an image named `image.jpg` in the current folder and we want to encrypt it with a password:
 
@@ -114,7 +114,7 @@ The salt has been embedded in the encrypted file.
 Use 'getsalt' to inspect it if needed.
 ```
 
-> **Note**: Only the password needs to be kept safe. The salt is cryptographically public — its value alone, without the password, is useless to an attacker. It can be inspected at any time using the `getsalt` command.
+> **Note**: Only the password needs to be kept safe. The salt is cryptographically public, its value alone, without the password, is useless to an attacker. It can be inspected at any time using the `getsalt` command.
 
 ## `decrypt` : Decrypt a file
 Decrypts a file present in the current folder using two different methods :
@@ -130,7 +130,7 @@ Decryption of a file named `psw.txt` using a filkey named `filekey.key` present 
 > **Note** : For standardization reasons and to avoid unfortunate modifications to a .txt format, all filekeys must be in `.key`.
 
 ### **Method 2** : By using a password
-This method is used to decrypt a file that was encrypted using a password. The salt is recovered automatically from the first 16 bytes of the encrypted file — the user only needs to provide the password.
+This method is used to decrypt a file that was encrypted using a password. The salt is recovered automatically from the first 16 bytes of the encrypted file, the user only needs to provide the password.
 
 Here we decrypt the file `image.jpg` encrypted with the `-p` option:
 
@@ -493,7 +493,7 @@ Fernet (from `cryptography` module) is an implementation of the AES algorithm us
 
 * **SHA-256** : A cryptographic hash function that produces a 256-bit hash value. It's used to generate the **M**essage **A**uthentication **C**ode.
 
-* **Password & Salt** : Data can be encrypted using a user-memorable password, which is **derived** to produce a 128-bit key. Before being hashed, this password is "mixed" with a sequence of random bytes called a "**salt**". The `psw` command (*see above*) allows the user to generate secure passwords. The salt is generated automatically by the script and embedded in the encrypted file — the user never needs to handle it directly.
+* **Password & Salt** : Data can be encrypted using a user-memorable password, which is **derived** to produce a 128-bit key. Before being hashed, this password is "mixed" with a sequence of random bytes called a "**salt**". The `psw` command (*see above*) allows the user to generate secure passwords. The salt is generated automatically by the script and embedded in the encrypted file, the user never needs to handle it directly.
 
 
 * **Key derivation** : principle of using a single secret key (*often called the master key, represented here by our password*) to generate several different keys of any desired length (*using an algorithm, PBKDF2 in our case*). To create these new keys, we generally use cryptographic hash functions. These functions take as input the master key (*our password*) and other information, such as the salt, to produce as output a unique and difficult-to-invert value, which will be our new key. This method has several advantages:
@@ -508,7 +508,7 @@ Fernet (from `cryptography` module) is an implementation of the AES algorithm us
   The salt is **not a secret**: its value alone, without the password, provides no advantage to an attacker. For this reason, the script embeds it directly in the encrypted file rather than asking the user to store it separately.
 
 
-> <span style="color:red"><b>Safety reminder</b></span> : The security of a password-encrypted file rests entirely on the **password**. The salt is public and embedded in the file — only the password must be kept safe. An attacker in possession of the encrypted file already has access to the salt; what prevents decryption is not knowing the password.
+> <span style="color:red"><b>Safety reminder</b></span> : The security of a password-encrypted file rests entirely on the **password**. The salt is public and embedded in the file, only the password must be kept safe. An attacker in possession of the encrypted file already has access to the salt; what prevents decryption is not knowing the password.
 
 ## Key and token
 The key and the token are two key concepts used by Fernet to encrypt and decrypt data.
@@ -562,7 +562,6 @@ Commands **still accessible** in SAFE_MODE :
 - clean
 
 ## Why a standalone script ?
-This is an approach that has several real advantages, especially for a tool of this type.
 
 **Total Portability**
 
@@ -570,7 +569,7 @@ The script is a single file, it can be copied to a USB drive, moved to a new mac
 
 **Limited Attack Surface by Design**
 
-The fact that the script can only access its current directory is a natural consequence of the standalone model — and a welcome security property. An encryption tool that can traverse the entire file system poses a much greater risk in case of mishandling. Here, the scope is implicitly bounded by design.
+An encryption tool that can traverse the entire file system poses a much greater risk in case of mishandling. Here, the scope is implicitly bounded by the fact that the script can only access its current directory.
 
 **Explicit Working Context**
 

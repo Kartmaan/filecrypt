@@ -1,9 +1,9 @@
-""" 
-Filecrypt encrypts/decrypts files in the current folder 
+"""
+Filecrypt encrypts/decrypts files in the current folder
 using the AES algorithm via the Fernet implementation.
 
 To do this, simply :
-- Place this script in the folder containing the file(s) 
+- Place this script in the folder containing the file(s)
 to be encrypted or decrypted.
 - Go to this folder from the terminal.
 - Call the script: 'python filecrypt.py' followed by the
@@ -18,8 +18,8 @@ Or :
 'python filecrypt.py --help'
 
 Author : Kartmaan
-Date : 2026-03-08
-Version : 1.2.1
+Date : 2026-05-05
+Version : 1.2.2
 """
 
 # ===================================================================
@@ -29,19 +29,28 @@ import argparse
 import base64
 import errno
 import getpass
-from datetime import datetime as dt
-from os import chmod, remove, rmdir, urandom, walk
-from os.path import abspath, basename, dirname, exists, getsize
-from os.path import isdir, isfile, join, relpath, realpath
 import secrets
-from shutil import copyfile, rmtree
 import stat
-from string import ascii_letters, ascii_lowercase
-from string import ascii_uppercase, digits, punctuation
 import subprocess
 import sys
+from datetime import datetime as dt
+from os import chmod, remove, rmdir, urandom, walk
+from os.path import (
+    abspath,
+    basename,
+    dirname,
+    exists,
+    getsize,
+    isdir,
+    isfile,
+    join,
+    realpath,
+    relpath,
+)
+from shutil import copyfile, rmtree
+from string import ascii_letters, ascii_lowercase, ascii_uppercase, digits, punctuation
 from typing import Union
-from zipfile import ZipFile, BadZipFile, ZIP_DEFLATED
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 # ===================================================================
 #                             CONSTANTS
@@ -62,29 +71,35 @@ FILEKEY_EXT = ".key"
 # visual vocabulary. Every print() in the script should go through
 # one of these rather than calling print() directly.
 #
-#   _fmt_header(text)  — opening line of an operation
-#   _fmt_step(text)    — progress line inside an operation
-#   _fmt_ok(text)      — closing line on success
-#   _fmt_info(text)    — supplementary note after a result
-#   _fmt_err(text)     — error message (standalone, no open block)
-#   _fmt_warn(text)    — warning / caution block
-#   _fmt_result(...)   — bordered info box (e.g. timestamp output)
-#   _fmt_ask(text)     — prompt label (returns the string, no newline)
+#   _fmt_header(text)  - opening line of an operation
+#   _fmt_step(text)    - progress line inside an operation
+#   _fmt_ok(text)      - closing line on success
+#   _fmt_info(text)    - supplementary note after a result
+#   _fmt_err(text)     - error message (standalone, no open block)
+#   _fmt_warn(text)    - warning / caution block
+#   _fmt_result(...)   - bordered info box (e.g. timestamp output)
+#   _fmt_ask(text)     - prompt label (returns the string, no newline)
+
 
 def _fmt_header(text: str) -> None:
     print(f"\n  ┌─ {text}")
 
+
 def _fmt_step(text: str) -> None:
     print(f"  │  {text}")
+
 
 def _fmt_ok(text: str = "Operation completed successfully") -> None:
     print(f"  └─ ✓  {text}\n")
 
+
 def _fmt_info(text: str) -> None:
     print(f"     {text}")
 
+
 def _fmt_err(text: str) -> None:
     print(f"\n  ✗  {text}\n")
+
 
 def _fmt_warn(title: str, body: str = "") -> None:
     print(f"\n  ⚠   {title}")
@@ -92,6 +107,7 @@ def _fmt_warn(title: str, body: str = "") -> None:
         for line in body.splitlines():
             print(f"      {line}")
     print()
+
 
 def _fmt_result(lines_dict: dict, title: str = "") -> None:
     """Prints a bordered info box.
@@ -106,10 +122,12 @@ def _fmt_result(lines_dict: dict, title: str = "") -> None:
         print(f"  │  {label:<{label_width}}  {value}")
     print(f"  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n")
 
+
 def _fmt_ask(text: str) -> str:
     """Returns a consistently indented prompt string for use with
     input() or getpass()."""
     return f"  │  {text}"
+
 
 # ===================================================================
 #                        NON-BUILT-IN MODULES
@@ -122,8 +140,7 @@ def install_from_requirements():
         try:
             # Tries to install the package with pip
             _fmt_step(f"Installing {package}...")
-            subprocess.check_call([sys.executable, "-m",
-                "pip", "install", package])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
             _fmt_step(f"{package} installed.")
 
         except subprocess.CalledProcessError:
@@ -134,21 +151,24 @@ def install_from_requirements():
             _fmt_err(f"An unexpected error has occurred : {e}.")
             raise
 
-# As these modules are not built-in, we insert them in a 
-# try...except block to suggest that the user install 
+
+# As these modules are not built-in, we insert them in a
+# try...except block to suggest that the user install
 # them if they are not present in his environment.
-try :
+try:
+    import pyperclip
     from cryptography.fernet import Fernet, InvalidToken
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     from dateutil.relativedelta import relativedelta
-    import pyperclip
 except ImportError:
     choice = None
 
     while choice != "y" and choice != "n":
-        _fmt_warn("Missing modules",
-                  f"The following modules are not installed: {REQUIREMENTS}")
+        _fmt_warn(
+            "Missing modules",
+            f"The following modules are not installed: {REQUIREMENTS}",
+        )
 
         choice = input("Do you want to install them ? (y/n): ")
         choice = choice.lower()
@@ -163,14 +183,15 @@ except ImportError:
             _fmt_err("Invalid input.")
             continue
 
+
 # ===================================================================
 #                          SAFETY CHECKS
 # ===================================================================
 def safety_check(func):
-    """Decorator : prevents a function from operating in 
+    """Decorator : prevents a function from operating in
     SAFE_MODE.
 
-    The decorator is attached to all functions able of 
+    The decorator is attached to all functions able of
     modifying/deleting files/folders.
 
     Args:
@@ -179,41 +200,41 @@ def safety_check(func):
     Returns:
         func: SAFE_MODE OFF -> The function is called
         wrap: SAFE_MODE ON -> The function is muted
-    """    
-    txt=f"This functionality ({func.__name__}) isn't available in safe mode."
+    """
+    txt = f"This functionality ({func.__name__}) isn't available in safe mode."
+
     def wrap(*args, **kwargs):
         if SAFE_MODE:
             _fmt_warn("SAFE MODE", txt)
             sys.exit(1)
         else:
             return func(*args, **kwargs)
+
     return wrap
 
+
 def in_danger_zone(path: str) -> bool:
-    """Determines whether a path corresponds to a 
+    """Determines whether a path corresponds to a
     sensitive area of the system.
 
     Args:
         path (str): Path to check.
 
     Returns:
-        bool: True if the path corresponds to a sensitive 
+        bool: True if the path corresponds to a sensitive
         area. False otherwise.
     """
-    # For each system, all paths STARTING with these are 
-    # considered sensitive    
-    danger_roots = {
-    "win32": ["c:\\windows"],
-    "linux": ["/bin", "/sbin", "/usr", "/etc", "/var"],
-    "darwin": ["/bin", "/sbin", "/usr", "/etc", "/var", 
-               "/System"]}
-
-    # For each system, all paths EQUAL to these are 
+    # For each system, all paths STARTING with these are
     # considered sensitive
-    danger_path = {
-    "win32": ["c:\\"],
-    "linux": ["/"],
-    "darwin": ["/"]}
+    danger_roots = {
+        "win32": ["c:\\windows"],
+        "linux": ["/bin", "/sbin", "/usr", "/etc", "/var"],
+        "darwin": ["/bin", "/sbin", "/usr", "/etc", "/var", "/System"],
+    }
+
+    # For each system, all paths EQUAL to these are
+    # considered sensitive
+    danger_path = {"win32": ["c:\\"], "linux": ["/"], "darwin": ["/"]}
 
     # Resolve symlinks and normalize the path, then convert to lowercase
     resolved_path = realpath(path).lower()
@@ -221,29 +242,30 @@ def in_danger_zone(path: str) -> bool:
     for root_path in danger_roots[USER_OS]:
         if resolved_path.startswith(root_path):
             return True
-        
+
     for root_path in danger_path[USER_OS]:
         if resolved_path == root_path:
             return True
-        
+
     return False
 
+
 def in_current_folder(path: str) -> bool:
-    """Checks if the path or file name inserted by the 
+    """Checks if the path or file name inserted by the
     user is in the script's current folder.
 
-    Functions that modify file contents or delete 
-    them, expect a target path as argument, and it's 
-    important to ensure that these functions CAN'T reach 
+    Functions that modify file contents or delete
+    them, expect a target path as argument, and it's
+    important to ensure that these functions CAN'T reach
     sensitive areas of the system.
 
-    The script goes into SAFE_MODE when it is in a 
-    sensitive area of the system, which prevents the 
-    script's modifier functions from being called. 
-    However, to ensure that these zones cannot be reached 
-    when the script is not in SAFE_MODE, by, for example, 
-    entering a sensitive path as an argument, these are 
-    checked to ensure that they are actually in the 
+    The script goes into SAFE_MODE when it is in a
+    sensitive area of the system, which prevents the
+    script's modifier functions from being called.
+    However, to ensure that these zones cannot be reached
+    when the script is not in SAFE_MODE, by, for example,
+    entering a sensitive path as an argument, these are
+    checked to ensure that they are actually in the
     script's current folder.
 
     Args:
@@ -262,29 +284,33 @@ def in_current_folder(path: str) -> bool:
     else:
         return False
 
-def handle_remove_readonly(func: callable, path: str, exc: tuple[any, Exception, any]) -> None:
+
+def handle_remove_readonly(
+    func: callable, path: str, exc: tuple[any, Exception, any]
+) -> None:
     """Handles errors in deleting read-only files or folders, particularly under Windows.
 
-    This function is designed to be used as a callback via the 'onerror' parameter of shutil.rmtree(). 
-    It intercepts deletion failures due to insufficient permissions (EACCES), modifies the element's 
+    This function is designed to be used as a callback via the 'onerror' parameter of shutil.rmtree().
+    It intercepts deletion failures due to insufficient permissions (EACCES), modifies the element's
     attributes to allow writing, and then retries the operation.
 
     Args:
         func: The function that failed.
         path: The absolute or relative path of the file or folder to be deleted.
-        exc: A tuple containing information about the exception thrown (type, value, traceback), 
+        exc: A tuple containing information about the exception thrown (type, value, traceback),
         as returned by sys.exc_info().
-    
+
     Raises:
-        Exception: Re-throws the original exception if the error is not related to an access 
+        Exception: Re-throws the original exception if the error is not related to an access
         problem (EACCES) or if the rights modification fails.
     """
     excvalue = exc[1]
     if func in (rmdir, remove) and excvalue.errno == errno.EACCES:
-        chmod(path, stat.S_IWRITE) # We make the file/folder writable
-        func(path) # We'll try the deletion again.
+        chmod(path, stat.S_IWRITE)  # We make the file/folder writable
+        func(path)  # We'll try the deletion again.
     else:
         raise
+
 
 # ===================================================================
 #                          INITIAL CHECKS
@@ -294,13 +320,16 @@ if USER_OS not in SUPPORTED_OS:
     _fmt_err(f"This OS ({USER_OS}) isn't supported. Supported: {SUPPORTED_OS}")
     sys.exit(1)
 
-# If the script is in a sensitive area of the system, 
+# If the script is in a sensitive area of the system,
 # SAFE_MODE is activated.
 if in_danger_zone(SCRIPT_PATH):
     SAFE_MODE = True
-    _fmt_warn("SAFE MODE",
-              "The script is located in a critical area of the system.\n"
-              "File-modifying operations are disabled.")
+    _fmt_warn(
+        "SAFE MODE",
+        "The script is located in a critical area of the system.\n"
+        "File-modifying operations are disabled.",
+    )
+
 
 # ===================================================================
 #                      INPUT CONTROL FUNCTIONS
@@ -323,6 +352,7 @@ def valid_b64_urlsafe(b64_code: Union[str, bytes]) -> bool:
     except Exception:
         return False
 
+
 def valid_filename(file_name: str) -> bool:
     """Checks if a file name is valid including by checking
     if all its characters are in a whitelist.
@@ -336,7 +366,7 @@ def valid_filename(file_name: str) -> bool:
 
     # Whitelist composed of letters, numbers and the
     # underscore symbol
-    symbols = ['_']
+    symbols = ["_"]
     letters_digits = list(ascii_letters + digits)
     whitelist = symbols + letters_digits
 
@@ -348,8 +378,7 @@ def valid_filename(file_name: str) -> bool:
 
     # The string is too long
     if len(file_name) > 255:
-        _fmt_err("File name is too long (must contain less than"
-              "than 256 characters).")
+        _fmt_err("File name is too long (must contain less thanthan 256 characters).")
         return False
 
     # Iteration to search for a character not in the
@@ -361,6 +390,7 @@ def valid_filename(file_name: str) -> bool:
 
     # Seems ok
     return True
+
 
 def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     """Checks the validity of a filekey name.
@@ -380,8 +410,7 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
         bool: Valid filekey name (True) or not (False)
     """
     if not isinstance(filekey, str):
-        _fmt_err(f"Wrong type, must be a str ({type(filekey)}"
-        " given.)")
+        _fmt_err(f"Wrong type, must be a str ({type(filekey)} given.)")
         return False
 
     # - The filekey will be recovered -
@@ -402,12 +431,13 @@ def valid_filekey_name(filekey: str, create: bool = False) -> bool:
     else:
         if not valid_filename(filekey):
             return False
-        
+
         if exists(filekey + FILEKEY_EXT):
             _fmt_err(f"{filekey} already exists.")
             return False
 
     return True
+
 
 def valid_filekey_key(filekey: str) -> bool:
     """Checks whether the key present in a filekey is valid.
@@ -426,13 +456,14 @@ def valid_filekey_key(filekey: str) -> bool:
     with open(filekey, "r") as f:
         content = f.read().strip()
 
-    # Step 1 — must be valid urlsafe base64
+    # Step 1 - must be valid urlsafe base64
     if not valid_b64_urlsafe(content):
         _fmt_err("Invalid key format: not a valid base64 urlsafe string.")
         return False
 
-    # Step 2 — decoded bytes must be exactly 32 (Fernet requirement)
+    # Step 2 - decoded bytes must be exactly 32 (Fernet requirement)
     import base64 as _b64
+
     decoded = _b64.urlsafe_b64decode(content)
     if len(decoded) != 32:
         _fmt_err(f"Invalid key length: expected 32 bytes, got {len(decoded)}.")
@@ -440,8 +471,9 @@ def valid_filekey_key(filekey: str) -> bool:
 
     return True
 
+
 def valid_filekey(filekey: str) -> bool:
-    """Checks the validity of a filekey's name as well as 
+    """Checks the validity of a filekey's name as well as
     its contents
 
     Args:
@@ -449,11 +481,12 @@ def valid_filekey(filekey: str) -> bool:
 
     Returns:
         bool: Valid (True) or not (False)
-    """    
+    """
     if valid_filekey_name(filekey) and valid_filekey_key(filekey):
         return True
     else:
         return False
+
 
 def valid_password(psw: str) -> bool:
     """Checks the validity of a password.
@@ -463,9 +496,9 @@ def valid_password(psw: str) -> bool:
 
     Returns:
         bool: Valid or not
-    """ 
+    """
     MIN_LENGTH = 5
-    blacklist = [' ']
+    blacklist = [" "]
 
     if not isinstance(psw, str):
         _fmt_err(f"psw must be a str type, {type(psw)} given.")
@@ -474,12 +507,13 @@ def valid_password(psw: str) -> bool:
     if len(psw) < MIN_LENGTH:
         _fmt_err(f"Password must be at least {MIN_LENGTH} characters long.")
         return False
-    
+
     for char in psw:
         if char in blacklist:
             return False
 
     return True
+
 
 def get_confidential_input(prompt: str) -> str:
     """Gets confidential input from the user without echoing to the terminal.
@@ -496,35 +530,33 @@ def get_confidential_input(prompt: str) -> str:
     """
     return getpass.getpass(prompt)
 
+
 # ===================================================================
 #                          FEATURE FUNCTIONS
 # ===================================================================
 def _clean_linux_native() -> bool:
-    """Attempts to clear the clipboard on Linux using native 
+    """Attempts to clear the clipboard on Linux using native
     tools (xclip, xsel, wl-clipboard), without requiring pyperclip.
 
-    Tries each tool silently via subprocess. Stops and returns 
+    Tries each tool silently via subprocess. Stops and returns
     True as soon as one succeeds.
 
     Returns:
-        bool: True if a native tool successfully cleared the 
+        bool: True if a native tool successfully cleared the
         clipboard, False if none were available.
     """
     # Each entry: (command, description)
     # We pipe an empty string into each tool to clear the clipboard.
     native_commands = [
-        ["xclip", "-selection", "clipboard"], # X11
-        ["xsel", "--clipboard", "--clear"], # X11
-        ["wl-copy", "--clear"], # Wayland
+        ["xclip", "-selection", "clipboard"],  # X11
+        ["xsel", "--clipboard", "--clear"],  # X11
+        ["wl-copy", "--clear"],  # Wayland
     ]
 
     for cmd in native_commands:
         try:
             result = subprocess.run(
-                cmd,
-                input=b"",
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                cmd, input=b"", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             if result.returncode == 0:
                 return True
@@ -534,14 +566,15 @@ def _clean_linux_native() -> bool:
 
     return False
 
+
 def clean():
     """Clears confidential data on the clipboard.
 
-    On all platforms, pyperclip is tried first. On Linux, if 
-    pyperclip raises PyperclipException (no copy/paste mechanism 
-    found), native clipboard tools are attempted as a fallback 
-    (xclip, xsel, wl-clipboard) — without requiring any 
-    installation. If none are available either, the user is 
+    On all platforms, pyperclip is tried first. On Linux, if
+    pyperclip raises PyperclipException (no copy/paste mechanism
+    found), native clipboard tools are attempted as a fallback
+    (xclip, xsel, wl-clipboard), without requiring any
+    installation. If none are available either, the user is
     informed of the situation and of the available options.
     """
     try:
@@ -554,9 +587,12 @@ def clean():
                 _fmt_ok("Clipboard erased.")
             else:
                 _clipboard_no_mechanism_msg()
-                _fmt_info("Alternatively, clear it manually by copying any innocuous text.")
+                _fmt_info(
+                    "Alternatively, clear it manually by copying any innocuous text."
+                )
         else:
             raise
+
 
 def _copy_linux_native(text: str) -> bool:
     """Attempts to copy text to the clipboard on Linux using native
@@ -573,9 +609,9 @@ def _copy_linux_native(text: str) -> bool:
         False if none were available.
     """
     native_commands = [
-        ["xclip", "-selection", "clipboard"], # X11
-        ["xsel",  "--clipboard", "--input"],   # X11
-        ["wl-copy"],                           # Wayland
+        ["xclip", "-selection", "clipboard"],  # X11
+        ["xsel", "--clipboard", "--input"],  # X11
+        ["wl-copy"],  # Wayland
     ]
 
     for cmd in native_commands:
@@ -584,7 +620,7 @@ def _copy_linux_native(text: str) -> bool:
                 cmd,
                 input=text.encode(),
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
             if result.returncode == 0:
                 return True
@@ -593,6 +629,7 @@ def _copy_linux_native(text: str) -> bool:
             continue
 
     return False
+
 
 def _clipboard_no_mechanism_msg() -> None:
     """Prints a standardised message when no clipboard mechanism
@@ -605,8 +642,9 @@ def _clipboard_no_mechanism_msg() -> None:
         "Install one of the following tools:\n"
         "  X11     : sudo apt-get install xclip\n"
         "            sudo apt-get install xsel\n"
-        "  Wayland : sudo apt-get install wl-clipboard"
+        "  Wayland : sudo apt-get install wl-clipboard",
     )
+
 
 def copy_filekey(filekey: str):
     """Copies the Base64 key stored in a filekey to the clipboard.
@@ -614,7 +652,7 @@ def copy_filekey(filekey: str):
     On all platforms, pyperclip is tried first. On Linux, if
     pyperclip raises PyperclipException (no copy/paste mechanism
     found), native clipboard tools are attempted as a fallback
-    (xclip, xsel, wl-clipboard) — without requiring any
+    (xclip, xsel, wl-clipboard), without requiring any
     installation. If none are available either, the user is
     informed of the situation and of the available options.
 
@@ -639,11 +677,14 @@ def copy_filekey(filekey: str):
         if USER_OS == "linux":
             if _copy_linux_native(key):
                 _fmt_ok("Key copied to clipboard.")
-                _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
+                _fmt_info(
+                    "Don't forget to clean the clipboard after use ('clean' command)."
+                )
             else:
                 _clipboard_no_mechanism_msg()
         else:
             raise
+
 
 def read_filekey(filekey: str, return_value: bool = False) -> str | None:
     """Displays or returns the Base64 key of a filekey.
@@ -654,35 +695,36 @@ def read_filekey(filekey: str, return_value: bool = False) -> str | None:
         return_value (bool): If True, the 'content'
         variable is returned, otherwise it's simply
         displayed. Default to False. (optional)
-    
+
     Error:
         Invalid filekey : sys.exit(1)
-    
+
     Return:
         str : The b64 key
     """
 
     if valid_filekey(filekey):
         with open(filekey, "r") as f:
-                content = f.read()
-                if not return_value:
-                    _fmt_info(content)
-                else:
-                    return content
+            content = f.read()
+            if not return_value:
+                _fmt_info(content)
+            else:
+                return content
     else:
         sys.exit(1)
+
 
 @safety_check
 def create_filekey(file_name: str, key: str):
     """Creates a filekey based on a base64 key.
 
-    If the key is valid, this filekey can be used to 
-    encrypt and decrypt data. 
+    If the key is valid, this filekey can be used to
+    encrypt and decrypt data.
 
     Args:
         file_name (str): Desired name for filekey without extension
         key (str): Secret key (base64 urlsafe)
-    
+
     Error:
         Invalid file name: sys.exit(1)
         Invalid filekey name: sys.exit(1)
@@ -692,59 +734,64 @@ def create_filekey(file_name: str, key: str):
     if not valid_filename(file_name):
         sys.exit(1)
 
-    if not valid_filekey_name(file_name, create = True):
+    if not valid_filekey_name(file_name, create=True):
         sys.exit(1)
 
     # No spaces
-    key = key.replace(' ', '')
-    key_bytes = bytes(key, 'ascii')
+    key = key.replace(" ", "")
+    key_bytes = bytes(key, "ascii")
 
     if valid_b64_urlsafe(key_bytes):
-        with open(file_name + FILEKEY_EXT, 'wb') as f:
+        with open(file_name + FILEKEY_EXT, "wb") as f:
             f.write(key_bytes)
         _fmt_ok(f"{file_name + FILEKEY_EXT} created in the current folder.")
     else:
         _fmt_err("Invalid key, must be base64 urlsafe.")
         sys.exit(1)
 
+
 @safety_check
-def secure_delete(filename: str, encryption_passes: int = 2,
-                  shuffle: bool = False, silent_mode: bool = False):
+def secure_delete(
+    filename: str,
+    encryption_passes: int = 2,
+    shuffle: bool = False,
+    silent_mode: bool = False,
+):
     """
     Securely deletes files/folders from the current folder.
 
-    Before deletion, files are blindly encrypted 
-    several times (without the key being communicated) 
-    with a new random key for each pass. Finally, the 
-    file size is truncated to coincide with the original 
+    Before deletion, files are blindly encrypted
+    several times (without the key being communicated)
+    with a new random key for each pass. Finally, the
+    file size is truncated to coincide with the original
     size.
-    
-    Optionally, the file bytes can be randomly shuffled 
-    just after truncation by activating the option 
+
+    Optionally, the file bytes can be randomly shuffled
+    just after truncation by activating the option
     '--shuffle' / '-s'.
 
-    Note about encryption passes: The file size can 
-    temporarily increase significantly with each 
-    encryption pass. Even if the file returns to its 
-    initial size after the truncation phase, setting 
-    the number of passes to 2 seems a more than 
+    Note about encryption passes: The file size can
+    temporarily increase significantly with each
+    encryption pass. Even if the file returns to its
+    initial size after the truncation phase, setting
+    the number of passes to 2 seems a more than
     acceptable compromise, particularly for large files.
 
-    Note about the shuffle option: The operation can 
-    be long for large files (approx. 2 min on a standard 
+    Note about the shuffle option: The operation can
+    be long for large files (approx. 2 min on a standard
     PC for a 100MB file).
 
     Args:
         filename (str): The file name to delete.
 
-        encryption_passes (int): The number of encryption 
+        encryption_passes (int): The number of encryption
         passes. Default to 2.
 
-        shuffle (bool): Random file bytes shuffling 
+        shuffle (bool): Random file bytes shuffling
         before deletion. Default to False.
 
         silent_mode (bool): Minimum prints
-    
+
     Error:
         Invalid filename arg: sys.exit(1)
         Invalid encryption_passes arg: sys.exit(1)
@@ -759,18 +806,20 @@ def secure_delete(filename: str, encryption_passes: int = 2,
     if not isinstance(filename, str):
         _fmt_err("filename must be a str.")
         sys.exit(1)
-    
+
     elif not isinstance(encryption_passes, int) or encryption_passes < 0:
         _fmt_err("Invalid 'encryption_passes' arg. Must be an integer >= 0.")
         sys.exit(1)
-    
+
     elif not in_current_folder(filename):
         _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
-    
-    # Prevents script from killing itself 
+
+    # Prevents script from killing itself
     elif filename == SCRIPT_PATH or filename == SCRIPT_NAME:
-        _fmt_err("I'm sorry user, I'm afraid I can't do that. Deleting myself is not in my programming.")
+        _fmt_err(
+            "I'm sorry user, I'm afraid I can't do that. Deleting myself is not in my programming."
+        )
         sys.exit(1)
 
     # Early folder detection (before confirmation)
@@ -781,7 +830,7 @@ def secure_delete(filename: str, encryption_passes: int = 2,
         is_filekey = True
 
     if not silent_mode:
-        # User confirmation — single prompt, adapted to the target type
+        # User confirmation - single prompt, adapted to the target type
         choice = None
         while choice != "y" and choice != "n":
             if is_folder:
@@ -789,19 +838,21 @@ def secure_delete(filename: str, encryption_passes: int = 2,
                 file_count = sum(len(files) for _, _, files in walk(filename))
                 _fmt_warn(
                     f"You are about to irreversibly delete the folder '{filename}'.",
-                    f"Location : {abspath(filename)}\n"
-                    f"Files    : {file_count}")
+                    f"Location : {abspath(filename)}\nFiles    : {file_count}",
+                )
             elif is_filekey:
                 _fmt_warn(
                     f"You are about to irreversibly delete the filekey '{filename}'.",
                     "If it's still needed for decryption, note its key first ('read' command).\n"
-                    f"Location : {abspath(filename)}")
+                    f"Location : {abspath(filename)}",
+                )
             else:
                 original_file_size = getsize(filename)
                 _fmt_warn(
                     f"You are about to irreversibly delete '{filename}'.",
                     f"Location : {abspath(filename)}\n"
-                    f"Size     : {round(original_file_size/1024, 3)} ko")
+                    f"Size     : {round(original_file_size / 1024, 3)} ko",
+                )
 
             choice = input(_fmt_ask("Confirm? (y/n): "))
             choice = choice.lower()
@@ -829,7 +880,7 @@ def secure_delete(filename: str, encryption_passes: int = 2,
             for file in files:
                 file_path = join(root, file)
                 secure_delete(file_path, encryption_passes, shuffle, silent_mode=True)
-        
+
         # Once empty, remove the folder tree
         try:
             rmtree(filename, onerror=handle_remove_readonly)
@@ -837,9 +888,9 @@ def secure_delete(filename: str, encryption_passes: int = 2,
                 _fmt_ok(f"Folder '{filename}' deleted.")
         except Exception as e:
             _fmt_err(f"Error removing folder '{filename}': {e}")
-        
+
         return  # End of function for folder case
-    
+
     if not silent_mode:
         if encryption_passes > 0:
             _fmt_step("Overwriting...")
@@ -849,7 +900,7 @@ def secure_delete(filename: str, encryption_passes: int = 2,
         # Generate a random key
         key = Fernet.generate_key()
 
-        # Generate a random salt 
+        # Generate a random salt
         salt = urandom(16)
 
         # Derive the key using PBKDF2HMAC
@@ -893,17 +944,17 @@ def secure_delete(filename: str, encryption_passes: int = 2,
                 if not silent_mode:
                     _fmt_step("Shuffling bytes...")
                 # Bytes type is immutable, so we transform
-                # it into a bytearray, which is a mutable 
+                # it into a bytearray, which is a mutable
                 # sequence.
                 bytes_array = bytearray(f.read())
 
                 # Inplace bytearray shuffle
-                # The SystemRandom class uses the operating 
+                # The SystemRandom class uses the operating
                 # system's entropy to make a crypto secure
                 # shuffle.
                 secrets.SystemRandom().shuffle(bytes_array)
 
-                # returns the cursor to the beginning of the 
+                # returns the cursor to the beginning of the
                 # file before writing the shuffled bytes
                 f.seek(0)
 
@@ -916,10 +967,11 @@ def secure_delete(filename: str, encryption_passes: int = 2,
     if not silent_mode:
         _fmt_ok(f"'{filename}' deleted.")
 
+
 @safety_check
 def zip_files(targets: list, delete: bool = False):
     """
-    Compresses files or folders into a ZIP archive.
+    Compresses files or folders into a ZIP archive from the current folder.
 
     Args:
         zip_files (list): List of targets
@@ -931,7 +983,9 @@ def zip_files(targets: list, delete: bool = False):
             _fmt_err(f"{target} is not in the current folder.")
             sys.exit(1)
         if target == SCRIPT_PATH or target == SCRIPT_NAME:
-            _fmt_err("I'm sorry user, I'm afraid I can't do that. Deleting myself is not in my programming.")
+            _fmt_err(
+                "I'm sorry user, I'm afraid I can't do that. Deleting myself is not in my programming."
+            )
             sys.exit(1)
 
     zip_filename = "archive.zip"
@@ -941,14 +995,16 @@ def zip_files(targets: list, delete: bool = False):
         _fmt_warn(f"An archive named '{zip_filename}' already exists.")
         while True:
             # Naming without extension
-            custom_name = input("Enter a name for the archive (without extension): ").strip()
-            
+            custom_name = input(
+                "Enter a name for the archive (without extension): "
+            ).strip()
+
             if not custom_name:
                 _fmt_err("Name cannot be empty.")
                 continue
-            
+
             zip_filename = custom_name + ".zip"
-            
+
             # We're also checking if this new name is available.
             if exists(zip_filename):
                 _fmt_err(f"'{zip_filename}' also exists. Please choose another name.")
@@ -959,27 +1015,33 @@ def zip_files(targets: list, delete: bool = False):
     if delete:
         _fmt_warn(
             "The following targets will be deleted after compression:",
-            "\n".join(f"  - {t}" for t in targets))
+            "\n".join(f"  - {t}" for t in targets),
+        )
         choice = input(_fmt_ask("Confirm? (y/n): ")).lower()
-        if choice != 'y':
+        if choice != "y":
             _fmt_info("Cancelled.")
             sys.exit(0)
 
     _fmt_header(f"Zipping · {', '.join(targets)}")
-    with ZipFile(zip_filename, 'w', ZIP_DEFLATED) as zipf:
+    with ZipFile(zip_filename, "w", ZIP_DEFLATED) as zipf:
         for target_to_zip in targets:
             # Targer is a folder
             if isdir(target_to_zip):
                 for root, dirs, files in walk(target_to_zip):
                     for file in files:
                         file_path = join(root, file)
-                        arch_name = join(basename(target_to_zip), relpath(file_path, start=target_to_zip))
+                        arch_name = join(
+                            basename(target_to_zip),
+                            relpath(file_path, start=target_to_zip),
+                        )
                         zipf.write(file_path, arcname=arch_name)
                         _fmt_step(f"Added: {file_path}")
-                
+
                 if delete:
                     # Recursive deletion logic
-                    total_files = sum([len(files) for r, d, files in walk(target_to_zip)])
+                    total_files = sum(
+                        [len(files) for r, d, files in walk(target_to_zip)]
+                    )
                     _fmt_step(f"Deleting source files in {target_to_zip}...")
                     deleted_files = 0
                     for root, dirs, files in walk(target_to_zip):
@@ -987,11 +1049,16 @@ def zip_files(targets: list, delete: bool = False):
                             secure_delete(join(root, file), silent_mode=True)
                             deleted_files += 1
                             _fmt_step(f"Deleted {deleted_files}/{total_files}")
-                    
-                    # Once the files are deleted, the empty folder is deleted. 
+
+                    # Once the files are deleted, the empty folder is deleted.
                     # We use `onerror` to handle stubborn cases in Windows.
                     try:
-                        rmtree(target_to_zip, ignore_errors=False, onerror=handle_remove_readonly)
+                        rmtree(
+                            target_to_zip,
+                            ignore_errors=False,
+                            onerror=handle_remove_readonly,
+                        )
+
                         _fmt_step(f"Folder {target_to_zip} removed.")
                     except Exception as e:
                         _fmt_err(f"Could not remove folder {target_to_zip}: {e}")
@@ -1000,30 +1067,31 @@ def zip_files(targets: list, delete: bool = False):
             elif isfile(target_to_zip):
                 zipf.write(target_to_zip, arcname=basename(target_to_zip))
                 _fmt_step(f"Added: {target_to_zip}")
-                
+
                 if delete:
                     secure_delete(target_to_zip, silent_mode=True)
-            
+
             else:
                 _fmt_step(f"Skipping {target_to_zip}: neither a file nor a folder.")
 
     _fmt_ok(f"'{zip_filename}' created successfully.")
-            
+
+
 @safety_check
 def unzip_file(arch_name: str):
     """
-    Unzip a zip archive.
+    Unzip a zip archive from the current folder.
 
     Args:
         arch_name (str): Name of the compressed file
     """
-    
+
     if not in_current_folder(arch_name):
         _fmt_err(f"{arch_name} is not in the current folder.")
         sys.exit(1)
-    
+
     try:
-        with ZipFile(arch_name, 'r') as zipf:
+        with ZipFile(arch_name, "r") as zipf:
             _fmt_header(f"Unzipping · {arch_name}")
             zipf.extractall()
         _fmt_ok(f"{arch_name} extracted successfully.")
@@ -1031,25 +1099,28 @@ def unzip_file(arch_name: str):
         _fmt_err(f"Archive not found: {e}")
         sys.exit(1)
     except BadZipFile:
-        _fmt_err("Invalid archive. If the archive is encrypted, please decrypt it first.")
+        _fmt_err(
+            "Invalid archive. If the archive is encrypted, please decrypt it first."
+        )
         sys.exit(1)
     except OSError as e:
         _fmt_err(f"Error during the extraction: {e}")
         sys.exit(1)
 
+
 def since_when(token_timestamp: int) -> str:
-    """Returns the elapsed time between an inserted 
-    timestamp and the current one. The function returns 
+    """Returns the elapsed time between an inserted
+    timestamp and the current one. The function returns
     the elapsed time by units of time in a readable form.
     Example : "2 days, 1 hour, 22 minutes, 6 seconds"
 
-    The function uses the 'relativedelta' method from 
-    'dateutil' module to take into account the variable 
+    The function uses the 'relativedelta' method from
+    'dateutil' module to take into account the variable
     length of months and years.
 
     Args:
         token_timestamp (int): The given timestamp
-    
+
     Error:
         Invalid timestamp : ValueError
 
@@ -1060,21 +1131,21 @@ def since_when(token_timestamp: int) -> str:
     # Invalid timestamp - Not an int
     if not isinstance(token_timestamp, int):
         raise ValueError("Error: invalid timestamp, must be a positive integer")
-    
+
     # Invalid timestamp - Not a positive int
     if isinstance(token_timestamp, int) and token_timestamp <= 0:
         raise ValueError("Error: invalid timestamp, must be a positive integer")
-    
+
     now = dt.now()
 
     # Time travellers are not allowed to use this feature.
     if token_timestamp > now.timestamp():
         raise ValueError("Error: the timestamp cannot be in the future.")
-    
+
     # Elapsed time calculation
     datetime_token = dt.fromtimestamp(token_timestamp)
     delta = relativedelta(now, datetime_token)
-    
+
     # Time units
     years = delta.years
     months = delta.months
@@ -1083,49 +1154,56 @@ def since_when(token_timestamp: int) -> str:
     minutes = delta.minutes
     seconds = delta.seconds
 
-    # We place these values in a dictionary so that we 
-    # can easily browse them to display only those time 
+    # We place these values in a dictionary so that we
+    # can easily browse them to display only those time
     # units whose value is not zero.
     delta_dict = {
-        "year" : years, "month" : months, "day" : days,
-        "hour" : hours, "minute" : minutes, 
-        "second" : seconds
+        "year": years,
+        "month": months,
+        "day": days,
+        "hour": hours,
+        "minute": minutes,
+        "second": seconds,
     }
 
-    # The dictionary is browsed for time units with a 
-    # non-zero value. If the value is greater than 1, 
+    # The dictionary is browsed for time units with a
+    # non-zero value. If the value is greater than 1,
     # an 's' is added after the unit to make it plural.
-    parts = [f"{val} {key}{'' if val == 1 else 's'}"
-             for key, val in delta_dict.items() if val != 0]
-    
+    parts = [
+        f"{val} {key}{'' if val == 1 else 's'}"
+        for key, val in delta_dict.items()
+        if val != 0
+    ]
+
     # Very fast user
     if not parts:
         return "Just now"
 
     return ", ".join(parts)
 
-def get_timestamp(encrypted_file: str, 
-                  filekey: Union[str, None] = None,
-                  psw: Union[str, None] = None) -> None:
+
+def get_timestamp(
+    encrypted_file: str, filekey: Union[str, None] = None, psw: Union[str, None] = None
+) -> None:
     """Prints the timestamp of a Fernet token.
     Depending on the method used to encrypt the file:
     with a filekey or with a password.
 
     In password mode, the salt is read automatically from the first
     16 bytes of the encrypted file (where it is embedded at
-    encryption time) — the user does not need to provide it.
+    encryption time), the user does not need to provide it.
 
     Mutually exclusive args:
     If 'filekey' is set, 'psw' must not be, and vice versa.
 
     Args:
-        encrypted_file (str): Encrypted file name present 
+        encrypted_file (str): Encrypted file name present
         in the current folder.
 
-        filekey (str | None): The filekey used to encrypt 
+        filekey (str | None): The filekey used to encrypt
         the file. Defaults to None.
 
-        psw (str | None): The password used to encrypt the 
+        psw (str | None): The password used to encrypt the
         file. Defaults to None.
 
     Error:
@@ -1134,34 +1212,34 @@ def get_timestamp(encrypted_file: str,
         Invalid psw              : sys.exit(1)
         Bad args combination     : sys.exit(1)
         Unexpected error         : raise Exception
-    
+
     Return:
         int : The Unix timestamp of the token
     """
     if not exists(encrypted_file):
         _fmt_err(f"File '{encrypted_file}' not found.")
         sys.exit(1)
-    
+
     # From a file encrypted with a filekey
     if filekey is not None and psw is None:
         if not valid_filekey(filekey):
             sys.exit(1)
 
-        with open(filekey, 'rb') as key_file:
+        with open(filekey, "rb") as key_file:
             key = key_file.read()
-        
+
         f = Fernet(key)
 
-        with open(encrypted_file, 'rb') as encrypted_data:
+        with open(encrypted_file, "rb") as encrypted_data:
             token = encrypted_data.read()
-    
+
     # From a file encrypted with a password
     # Salt is read automatically from the first 16 bytes of the file
     elif psw is not None and filekey is None:
         if not valid_password(psw):
             sys.exit(1)
 
-        with open(encrypted_file, 'rb') as ef:
+        with open(encrypted_file, "rb") as ef:
             raw = ef.read()
 
         salt_bytes = raw[:16]
@@ -1181,41 +1259,49 @@ def get_timestamp(encrypted_file: str,
     try:
         timestamp = f.extract_timestamp(token)
         readable_time = dt.fromtimestamp(timestamp)
-        _fmt_result({
-            "File"      : encrypted_file,
-            "Encrypted" : str(readable_time),
-            "Since"     : since_when(timestamp),
-            "Timestamp" : str(timestamp),
-        }, title="Timestamp")
+        _fmt_result(
+            {
+                "File": encrypted_file,
+                "Encrypted": str(readable_time),
+                "Since": since_when(timestamp),
+                "Timestamp": str(timestamp),
+            },
+            title="Timestamp",
+        )
     except Exception as e:
         _fmt_err(str(e))
         raise
 
-def psw_gen(length=17, include_uppercase=True,
-            include_lowercase=True, include_digits=True, 
-            include_symbols=True, copy_secret: bool = False):
+
+def psw_gen(
+    length=17,
+    include_uppercase=True,
+    include_lowercase=True,
+    include_digits=True,
+    include_symbols=True,
+    copy_secret: bool = False,
+):
     """Generates and a strong random password and print it.
 
-    The function uses the 'secrets' module to randomly 
-    select characters from an iterable (alphabet) in a 
+    The function uses the 'secrets' module to randomly
+    select characters from an iterable (alphabet) in a
     cryptographically secure way, using system entropy.
 
     Args:
-        length (int, optional): Password length. Defaults 
+        length (int, optional): Password length. Defaults
         to 17.
 
-        include_uppercase (bool, optional): Inclusion of 
+        include_uppercase (bool, optional): Inclusion of
         capital letters. Defaults to True.
 
-        include_lowercase (bool, optional): Inclusion of 
+        include_lowercase (bool, optional): Inclusion of
         lowercase letters. Defaults to True.
-        
-        include_digits (bool, optional): Inclusion of 
+
+        include_digits (bool, optional): Inclusion of
         digits. Defaults to True.
 
-        include_symbols (bool, optional): Inclusion of 
-        symbols. Defaults to False to avoid syntax conflicts.
-
+        include_symbols (bool, optional): Inclusion of
+        symbols. Defaults to True.
 
         copy_secret (bool): If True, copies the generated
         password to the clipboard using the pyperclip ->
@@ -1241,18 +1327,20 @@ def psw_gen(length=17, include_uppercase=True,
     if not alphabet:
         raise ValueError("At least one character type must be included.")
 
-    # Loop in which the secrets.choice() method chooses 
-    # the desired number of random characters from the 
+    # Loop in which the secrets.choice() method chooses
+    # the desired number of random characters from the
     # available characters in 'alphabet'
     while True:
-        password = ''.join(secrets.choice(alphabet) for _ in range(length))
-        # Additional check to ensure that all character 
-        # types are present if requested. If not, another 
+        password = "".join(secrets.choice(alphabet) for _ in range(length))
+        # Additional check to ensure that all character
+        # types are present if requested. If not, another
         # generation is tempted
-        if (include_uppercase and not any(c.isupper() for c in password)) or \
-            (include_lowercase and not any(c.islower() for c in password)) or \
-            (include_digits and not any(c.isdigit() for c in password)) or \
-            (include_symbols and not any(c in punctuation for c in password)):
+        if (
+            (include_uppercase and not any(c.isupper() for c in password))
+            or (include_lowercase and not any(c.islower() for c in password))
+            or (include_digits and not any(c.isdigit() for c in password))
+            or (include_symbols and not any(c in punctuation for c in password))
+        ):
             continue
         # All character types are present
         else:
@@ -1264,19 +1352,23 @@ def psw_gen(length=17, include_uppercase=True,
         try:
             pyperclip.copy(password)
             _fmt_ok("Password copied to clipboard.")
-            _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
+            _fmt_info(
+                "Don't forget to clean the clipboard after use ('clean' command)."
+            )
         except pyperclip.PyperclipException:
             if USER_OS == "linux":
                 if _copy_linux_native(password):
                     _fmt_ok("Password copied to clipboard.")
-                    _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
+                    _fmt_info(
+                        "Don't forget to clean the clipboard after use ('clean' command)."
+                    )
                 else:
                     _clipboard_no_mechanism_msg()
             else:
                 raise
 
-def psw_derivation(psw: str,
-                   salt_bytes: Union[bytes, None] = None) -> tuple:
+
+def psw_derivation(psw: str, salt_bytes: Union[bytes, None] = None) -> tuple:
     """Creates a Fernet object from a password and a raw salt.
 
     The salt is always handled as raw bytes (16 bytes / 128 bits).
@@ -1297,48 +1389,52 @@ def psw_derivation(psw: str,
         encrypt/decrypt, and the raw salt bytes used.
     """
     # The password must be handled in binary form.
-    psw = psw.encode('ascii')
+    psw = psw.encode("ascii")
 
     # No salt provided: generate a cryptographically secure one
     if salt_bytes is None:
-        salt_bytes = urandom(16) # 16 random bytes (128 bits)
+        salt_bytes = urandom(16)  # 16 random bytes (128 bits)
 
     # - - - - Derivation algorithm PBKDF2HMAC - - - -
-    # * algorithm : Specifies the hash algorithm to be used 
+    # * algorithm : Specifies the hash algorithm to be used
     # for key derivation.
     #
-    # * length : Determines the length of the generated key 
+    # * length : Determines the length of the generated key
     # in bytes.
     #
-    # * salt : Value, ideally random, to salt the password 
-    # before hashing. This makes dictionary attacks and 
+    # * salt : Value, ideally random, to salt the password
+    # before hashing. This makes dictionary attacks and
     # rainbow tables less effective.
     #
-    # * iterations : Specifies the number of times the 
+    # * iterations : Specifies the number of times the
     # hash function will be applied. The higher the number,
-    # the more difficult it is to break the password by 
+    # the more difficult it is to break the password by
     # brute force.
     kdf = PBKDF2HMAC(
-        algorithm = hashes.SHA256(),
-        length = 32,
-        salt = salt_bytes,
-        iterations = 480000,
-        )
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt_bytes,
+        iterations=480000,
+    )
 
-    # The password is derived and combined with the 
-    # previously specified parameters. The key is 
-    # converted to b64 urlsafe to comply with Fernet 
+    # The password is derived and combined with the
+    # previously specified parameters. The key is
+    # converted to b64 urlsafe to comply with Fernet
     # standards
     key = base64.urlsafe_b64encode(kdf.derive(psw))
     f = Fernet(key)
 
     return f, salt_bytes
 
+
 @safety_check
-def encrypt(filename: str, overwrite: bool = True, 
-            given_filekey: Union[str, None] = None, 
-            psw: Union[str, None] = None,
-            copy_secret: bool = False):
+def encrypt(
+    filename: str,
+    overwrite: bool = True,
+    given_filekey: Union[str, None] = None,
+    psw: Union[str, None] = None,
+    copy_secret: bool = False,
+):
     """Encrypts a file in 3 different ways :
 
     1. By generating a random filekey in the current folder
@@ -1376,11 +1472,11 @@ def encrypt(filename: str, overwrite: bool = True,
         Invalid password: sys.exit(1)
         Unexpected error: sys.exit(1)
     """
-    
+
     if not in_current_folder(filename):
         _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
-    
+
     _fmt_header(f"Encryption · {filename}")
 
     # No password given : function will be dealing with a filekey
@@ -1388,15 +1484,17 @@ def encrypt(filename: str, overwrite: bool = True,
         # No filekey given, a random key will be generated.
         # --keyfile = False
         if given_filekey is None:
-            generated_filekey_name = 'filekey' + FILEKEY_EXT
+            generated_filekey_name = "filekey" + FILEKEY_EXT
 
             # If a 'filekey.key' file already exists in the
             # current folder, the user is prompted to choose
             # another name for the key to be generated.
             while exists(generated_filekey_name):
-                choice = input(f"{generated_filekey_name} already "
-                "exists in the current folder, choose another name"
-                " (without extension): ")
+                choice = input(
+                    f"{generated_filekey_name} already "
+                    "exists in the current folder, choose another name"
+                    " (without extension): "
+                )
 
                 if valid_filename(choice):
                     generated_filekey_name = choice + FILEKEY_EXT
@@ -1407,7 +1505,7 @@ def encrypt(filename: str, overwrite: bool = True,
             # Filekey generation
             _fmt_step(f"Generating filekey ({generated_filekey_name})...")
             key = Fernet.generate_key()
-            with open(generated_filekey_name, 'wb') as filekey:
+            with open(generated_filekey_name, "wb") as filekey:
                 filekey.write(key)
 
         # FILEKEY GIVEN
@@ -1424,8 +1522,8 @@ def encrypt(filename: str, overwrite: bool = True,
             _fmt_step(f"Reading given filekey ({generated_filekey_name})...")
 
         try:
-            with open(generated_filekey_name, 'rb') as filekey:
-                key = filekey.read() # key = bytes
+            with open(generated_filekey_name, "rb") as filekey:
+                key = filekey.read()  # key = bytes
         except FileNotFoundError:
             _fmt_err(f"No such keyfile in the current folder.")
             sys.exit(1)
@@ -1433,7 +1531,7 @@ def encrypt(filename: str, overwrite: bool = True,
         # Fernet object creation with the generated key
         f = Fernet(key)
 
-    # Password given : function will be dealing without a 
+    # Password given : function will be dealing without a
     # filekey
     else:
         # Password mode: validate password, generate salt automatically
@@ -1444,9 +1542,9 @@ def encrypt(filename: str, overwrite: bool = True,
 
     # Copying the file before overwriting it
     if not overwrite:
-        name = filename[:filename.find('.')]
+        name = filename[: filename.find(".")]
         name += "(copy)"
-        ext = filename[filename.find('.'):]
+        ext = filename[filename.find(".") :]
         copy_filename = name + ext
         _fmt_step("Copying file before overwriting...")
         try:
@@ -1456,11 +1554,11 @@ def encrypt(filename: str, overwrite: bool = True,
             if psw is None:
                 remove(generated_filekey_name)
             sys.exit(1)
-        
+
     # Recovery the file to be encrypted in bytes
     _fmt_step(f"Reading {filename}...")
     try:
-        with open(filename, 'rb') as file:
+        with open(filename, "rb") as file:
             file_bytes = file.read()
     except FileNotFoundError:
         _fmt_err(f"No such file: '{filename}' in the current folder.")
@@ -1476,7 +1574,7 @@ def encrypt(filename: str, overwrite: bool = True,
     # In password mode: prepend the raw 16-byte salt so it can be
     # recovered automatically at decryption time.
     _fmt_step("Writing encrypted data...")
-    with open(filename, 'wb') as encrypted_file:
+    with open(filename, "wb") as encrypted_file:
         if psw is not None:
             encrypted_file.write(salt_bytes + encrypted)
         else:
@@ -1488,29 +1586,34 @@ def encrypt(filename: str, overwrite: bool = True,
 
     # Copy the filekey's Base64 key to the clipboard if requested
     # (filekey mode only; in password mode the salt is embedded in the
-    # file and is inspectable via 'getsalt' — nothing sensitive to copy)
+    # file and is inspectable via 'getsalt', nothing sensitive to copy)
     if copy_secret and psw is None:
-        secret_to_copy = key.decode('ascii')
+        secret_to_copy = key.decode("ascii")
         secret_label = f"Key from '{generated_filekey_name}'"
 
         try:
             pyperclip.copy(secret_to_copy)
             _fmt_ok(f"{secret_label} copied to clipboard.")
-            _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
+            _fmt_info(
+                "Don't forget to clean the clipboard after use ('clean' command)."
+            )
         except pyperclip.PyperclipException:
             if USER_OS == "linux":
                 if _copy_linux_native(secret_to_copy):
                     _fmt_ok(f"{secret_label} copied to clipboard.")
-                    _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
+                    _fmt_info(
+                        "Don't forget to clean the clipboard after use ('clean' command)."
+                    )
                 else:
                     _clipboard_no_mechanism_msg()
             else:
                 raise
 
+
 @safety_check
-def decrypt(filename: str,
-            filekey_name: Union[str, None] = None, 
-            psw: Union[str, None] = None):
+def decrypt(
+    filename: str, filekey_name: Union[str, None] = None, psw: Union[str, None] = None
+):
     """Decrypts a file in 2 different ways :
 
     1. By using a filekey present in the current folder
@@ -1527,7 +1630,7 @@ def decrypt(filename: str,
 
         filekey_name (str | None): Name of the filekey in the
         current folder to decrypt with. Defaults to None.
-        
+
         psw (str | None): Password to decrypt the file.
         Defaults to None.
 
@@ -1537,7 +1640,7 @@ def decrypt(filename: str,
         Invalid psw     : sys.exit(1)
         Invalid token   : sys.exit(1)
     """
-    
+
     if not in_current_folder(filename):
         _fmt_err(f"{filename} is not in the current folder.")
         sys.exit(1)
@@ -1551,7 +1654,7 @@ def decrypt(filename: str,
 
         _fmt_step(f"Reading filekey ({filekey_name})...")
         try:
-            with open(filekey_name, 'rb') as filekey:
+            with open(filekey_name, "rb") as filekey:
                 key = filekey.read()
         except FileNotFoundError:
             _fmt_err(f"No such filekey: '{filekey_name}' in the current folder.")
@@ -1560,12 +1663,12 @@ def decrypt(filename: str,
         try:
             f = Fernet(key)
         except ValueError as e:
-            _fmt_err(f"Invalid filekey — {e}")
+            _fmt_err(f"Invalid filekey - {e}")
             sys.exit(1)
 
         _fmt_step(f"Reading {filename}...")
         try:
-            with open(filename, 'rb') as ef:
+            with open(filename, "rb") as ef:
                 encrypted = ef.read()
         except FileNotFoundError:
             _fmt_err(f"No such file: '{filename}' in the current folder.")
@@ -1579,7 +1682,7 @@ def decrypt(filename: str,
 
         _fmt_step(f"Reading {filename}...")
         try:
-            with open(filename, 'rb') as ef:
+            with open(filename, "rb") as ef:
                 raw = ef.read()
         except FileNotFoundError:
             _fmt_err(f"No such file: '{filename}' in the current folder.")
@@ -1590,7 +1693,7 @@ def decrypt(filename: str,
             sys.exit(1)
 
         salt_bytes = raw[:16]
-        encrypted  = raw[16:]
+        encrypted = raw[16:]
         _fmt_step("Salt recovered from file...")
         f, _ = psw_derivation(psw, salt_bytes)
 
@@ -1599,24 +1702,25 @@ def decrypt(filename: str,
     try:
         decrypted = f.decrypt(encrypted)
     except InvalidToken:
-        _fmt_err("Invalid Fernet token — wrong key or corrupted file.")
+        _fmt_err("Invalid Fernet token - wrong key or corrupted file.")
         sys.exit(1)
 
     # Overwriting the file with decrypted bytes
     _fmt_step(f"Writing {filename}...")
-    with open(filename, 'wb') as decrypted_file:
+    with open(filename, "wb") as decrypted_file:
         decrypted_file.write(decrypted)
 
     _fmt_ok()
 
-def verify(filename: str,
-           filekey_name: Union[str, None] = None,
-           psw: Union[str, None] = None) -> None:
+
+def verify(
+    filename: str, filekey_name: Union[str, None] = None, psw: Union[str, None] = None
+) -> None:
     """Verifies that a filekey or a password is compatible with an
     encrypted file, without writing anything to disk.
 
     The file is read and decryption is attempted entirely in memory.
-    The decrypted result is immediately discarded — the file on disk
+    The decrypted result is immediately discarded, the file on disk
     is never modified.
 
     In password mode, the salt is extracted automatically from the
@@ -1655,7 +1759,7 @@ def verify(filename: str,
             sys.exit(1)
 
         try:
-            with open(filekey_name, 'rb') as fk:
+            with open(filekey_name, "rb") as fk:
                 key = fk.read()
         except FileNotFoundError:
             _fmt_err(f"Filekey '{filekey_name}' not found.")
@@ -1664,13 +1768,13 @@ def verify(filename: str,
         try:
             f = Fernet(key)
         except ValueError as e:
-            _fmt_err(f"Invalid filekey — {e}")
+            _fmt_err(f"Invalid filekey - {e}")
             sys.exit(1)
 
-        key_label = f"Filekey \'{filekey_name}\'"
+        key_label = f"Filekey '{filekey_name}'"
 
         try:
-            with open(filename, 'rb') as ef:
+            with open(filename, "rb") as ef:
                 encrypted = ef.read()
         except FileNotFoundError:
             _fmt_err(f"File '{filename}' not found in the current folder.")
@@ -1683,7 +1787,7 @@ def verify(filename: str,
             sys.exit(1)
 
         try:
-            with open(filename, 'rb') as ef:
+            with open(filename, "rb") as ef:
                 raw = ef.read()
         except FileNotFoundError:
             _fmt_err(f"File '{filename}' not found in the current folder.")
@@ -1694,18 +1798,21 @@ def verify(filename: str,
             sys.exit(1)
 
         salt_bytes = raw[:16]
-        encrypted  = raw[16:]
+        encrypted = raw[16:]
         f, _ = psw_derivation(psw, salt_bytes)
         key_label = "The given password"
 
-    # Attempt in-memory decryption — result is intentionally discarded
+    # Attempt in-memory decryption, result is intentionally discarded
     try:
         f.decrypt(encrypted)
         f.decrypt(encrypted)
-        _fmt_ok(f"Verification successful — {key_label} can decrypt '{filename}'.")
+        _fmt_ok(f"Verification successful - {key_label} can decrypt '{filename}'.")
     except InvalidToken:
-        _fmt_err(f"Verification failed — {key_label} cannot decrypt '{filename}'.\n"
-                 "The password may be wrong, or the file may not be a valid Fernet token.")
+        _fmt_err(
+            f"Verification failed - {key_label} cannot decrypt '{filename}'.\n"
+            "The password may be wrong, or the file may not be a valid Fernet token."
+        )
+
 
 def get_salt(filename: str, copy_secret: bool = False) -> None:
     """Extracts and displays the salt embedded in a password-encrypted file.
@@ -1736,34 +1843,41 @@ def get_salt(filename: str, copy_secret: bool = False) -> None:
         sys.exit(1)
 
     try:
-        with open(filename, 'rb') as f:
+        with open(filename, "rb") as f:
             salt_bytes = f.read(16)
     except OSError as e:
         _fmt_err(f"Error reading '{filename}': {e}")
         sys.exit(1)
 
     if len(salt_bytes) < 16:
-        _fmt_err("File too short to contain an embedded salt.\n"
-                 "This file may not have been encrypted with a password.")
+        _fmt_err(
+            "File too short to contain an embedded salt.\n"
+            "This file may not have been encrypted with a password."
+        )
         sys.exit(1)
 
-    salt_b64 = base64.urlsafe_b64encode(salt_bytes).decode('ascii')
+    salt_b64 = base64.urlsafe_b64encode(salt_bytes).decode("ascii")
     _fmt_result({"Salt": salt_b64}, title="Embedded salt")
 
     if copy_secret:
         try:
             pyperclip.copy(salt_b64)
             _fmt_ok("Salt copied to clipboard.")
-            _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
+            _fmt_info(
+                "Don't forget to clean the clipboard after use ('clean' command)."
+            )
         except pyperclip.PyperclipException:
             if USER_OS == "linux":
                 if _copy_linux_native(salt_b64):
                     _fmt_ok("Salt copied to clipboard.")
-                    _fmt_info("Don't forget to clean the clipboard after use ('clean' command).")
+                    _fmt_info(
+                        "Don't forget to clean the clipboard after use ('clean' command)."
+                    )
                 else:
                     _clipboard_no_mechanism_msg()
             else:
                 raise
+
 
 # ===================================================================
 #                             ARGPARSER
@@ -1775,226 +1889,221 @@ def main():
     Error:
         Invalid command: sys.exit(1)
         Wrong command combinaison: sys.exit(1)
-    """    
+    """
     # - - - - - - Argparse structure - - - - - -
     # Main parser
     parser = argparse.ArgumentParser(
-        description="Script to encrypt/decrypt files "
-        "using Fernet"
+        description="Script to encrypt/decrypt files using Fernet"
     )
 
     # Sub-commands
-    subparsers = parser.add_subparsers(
-        dest="command",
-        help="Available commands"
-    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # - - - - - - Command : install
     parser_install = subparsers.add_parser(
-        "install",
-        help="Install dependencies using pip"
+        "install", help="Install dependencies using pip"
     )
 
     # - - - - - - Command : psw
-    parser_psw = subparsers.add_parser(
-        "psw",
-        help="Generates a strong random password"
-    )
+    parser_psw = subparsers.add_parser("psw", help="Generates a strong random password")
     parser_psw.add_argument(
-        "-cs", "--copysecret",
-        default=False, action="store_true",
-        help="Copy the generated password to the clipboard"
+        "-cs",
+        "--copysecret",
+        default=False,
+        action="store_true",
+        help="Copy the generated password to the clipboard",
     )
 
     # - - - - - - Command : read
-    parser_read = subparsers.add_parser(
-        "read",
-        help="Read a keyfile encoded in Base64"
-    )
-    parser_read.add_argument(
-        "filekey",
-        help="Path to keyfile"
-    )
-    
+    parser_read = subparsers.add_parser("read", help="Read a keyfile encoded in Base64")
+    parser_read.add_argument("filekey", help="Path to keyfile")
+
     # - - - - - - Command : timestamp
     parser_timestamp = subparsers.add_parser(
-        "timestamp",
-        help="Extracts a timestamp from a token"
+        "timestamp", help="Extracts a timestamp from a token"
     )
     parser_timestamp.add_argument(
-        "encrypted_file",
-        help="Encrypted file name in the current folder"
+        "encrypted_file", help="Encrypted file name in the current folder"
     )
     parser_timestamp.add_argument(
-        "-f", "--filekey",
-        help="Filekey name used to encrypt the file",
-        default= None
+        "-f", "--filekey", help="Filekey name used to encrypt the file", default=None
     )
     parser_timestamp.add_argument(
-        "-p", "--password",
+        "-p",
+        "--password",
         help="Password used to encrypt the file (salt is recovered "
-             "automatically from the file)",
-        default= None, action= "store_true"
+        "automatically from the file)",
+        default=None,
+        action="store_true",
     )
 
     # - - - - - - Command : create
     parser_create = subparsers.add_parser(
-        "create",
-        help="Create a new keyfile with a given key"
+        "create", help="Create a new keyfile with a given key"
     )
-    parser_create.add_argument(
-        "filename",
-        help="File name (without its extension)"
-    )
+    parser_create.add_argument("filename", help="File name (without its extension)")
 
     # - - - - - - Command : delete
     parser_delete = subparsers.add_parser(
-        "delete",
-        help="Securely deletes a file from the current folder"
+        "delete", help="Securely deletes a file from the current folder"
     )
     parser_delete.add_argument(
-        "filenames",
-        nargs='+',
-        help="The file name(s) to delete (one or more)"
+        "filenames", nargs="+", help="The file name(s) to delete (one or more)"
     )
-    parser_delete.add_argument("-s", "--shuffle", default= False, 
-        help="Shuffle file bytes before deletion", action="store_true")
+    parser_delete.add_argument(
+        "-s",
+        "--shuffle",
+        default=False,
+        help="Shuffle file bytes before deletion",
+        action="store_true",
+    )
 
     # - - - - - - Command : zip
-    parser_zip = subparsers.add_parser(
-    "zip",
-    help="Zip files/folders"
-    )
-    
-    parser_zip.add_argument(
-        "targets", 
-        nargs='+', 
-        help="Files or folders to zip"
-    )
+    parser_zip = subparsers.add_parser("zip", help="Zip files/folders")
+
+    parser_zip.add_argument("targets", nargs="+", help="Files or folders to zip")
 
     parser_zip.add_argument(
-        "-d", "--delete",
+        "-d",
+        "--delete",
         default=False,
         action="store_true",
-        help="Deletes original files after archiving"
+        help="Deletes original files after archiving",
     )
 
     # - - - - - - Command : unzip
-    parser_unzip = subparsers.add_parser(
-        "unzip", help="Unzip a file/folder"
-    )
-    parser_unzip.add_argument(
-        "arcname", help="Archive to unzip"
-    )
+    parser_unzip = subparsers.add_parser("unzip", help="Unzip a file/folder")
+    parser_unzip.add_argument("arcname", help="Archive to unzip")
 
     # - - - - - - Command : clean
-    parser_clean = subparsers.add_parser(
-        "clean", help="Cleans the clipboard"
-    )
+    parser_clean = subparsers.add_parser("clean", help="Cleans the clipboard")
 
     # - - - - - - Command : copykey
     parser_copykey = subparsers.add_parser(
-        "copykey",
-        help="Copy a filekey's Base64 key to the clipboard"
+        "copykey", help="Copy a filekey's Base64 key to the clipboard"
     )
     parser_copykey.add_argument(
-        "filekey",
-        help="Filekey name (with its .key extension)"
+        "filekey", help="Filekey name (with its .key extension)"
     )
 
     # - - - - - - Command : getsalt
     parser_getsalt = subparsers.add_parser(
-        "getsalt",
-        help="Extract the salt embedded in a password-encrypted file"
+        "getsalt", help="Extract the salt embedded in a password-encrypted file"
     )
     parser_getsalt.add_argument(
-        "filename",
-        help="Password-encrypted file (with its extension)"
+        "filename", help="Password-encrypted file (with its extension)"
     )
     parser_getsalt.add_argument(
-        "-cs", "--copysecret",
-        default=False, action="store_true",
-        help="Copy the extracted salt to the clipboard"
+        "-cs",
+        "--copysecret",
+        default=False,
+        action="store_true",
+        help="Copy the extracted salt to the clipboard",
     )
 
     # - - - - - - Command : encrypt
-    parser_encrypt = subparsers.add_parser("encrypt",
-        help= "Encrypts a file")
-    parser_encrypt.add_argument("filename",
-        help= "File name to be encrypted (with its extension)")
-    parser_encrypt.add_argument("-f", "--filekey",
-        help= "Name of the existing filekey (with its extension)", default=None)
-    parser_encrypt.add_argument("-p", "--password", default= None,
-        help= "Encrypts with a given password (salt is generated and "
-             "embedded automatically)", action="store_true")
+    parser_encrypt = subparsers.add_parser("encrypt", help="Encrypts a file")
+    parser_encrypt.add_argument(
+        "filename", help="File name to be encrypted (with its extension)"
+    )
+    parser_encrypt.add_argument(
+        "-f",
+        "--filekey",
+        help="Name of the existing filekey (with its extension)",
+        default=None,
+    )
+    parser_encrypt.add_argument(
+        "-p",
+        "--password",
+        default=None,
+        help="Encrypts with a given password (salt is generated and "
+        "embedded automatically)",
+        action="store_true",
+    )
 
     parser_encrypt.add_argument(
-        "-cs", "--copysecret",
-        default=False, action="store_true",
+        "-cs",
+        "--copysecret",
+        default=False,
+        action="store_true",
         help="After encryption, copy the filekey's Base64 key to the "
-             "clipboard (filekey mode only; in password mode the salt "
-             "is embedded in the file and retrieved via 'getsalt')"
+        "clipboard (filekey mode only; in password mode the salt "
+        "is embedded in the file and retrieved via 'getsalt')",
     )
 
     # The -overwrite and -copy options are mutually exclusive.
     # Both are optional: if neither is provided, --copy is
     # applied by default as a safety measure.
     group_encrypt = parser_encrypt.add_mutually_exclusive_group(required=False)
-    group_encrypt.add_argument("-ow", "--overwrite",
-        action="store_true", help="Overwrites the original file")
-    group_encrypt.add_argument("-c", "--copy",
-        action="store_true", help="Copy the file before overwriting it "
-        "in its encrypted version (default if neither option is given)")
+    group_encrypt.add_argument(
+        "-ow", "--overwrite", action="store_true", help="Overwrites the original file"
+    )
+    group_encrypt.add_argument(
+        "-c",
+        "--copy",
+        action="store_true",
+        help="Copy the file before overwriting it "
+        "in its encrypted version (default if neither option is given)",
+    )
 
     # - - - - - - Command : decrypt
-    parser_decrypt = subparsers.add_parser("decrypt",
-        help= "Decrypts a file")
-    parser_decrypt.add_argument("filename",
-        help= "File name to decrypt (with its extension)")
-    parser_decrypt.add_argument("filekey", nargs="?",
-        help= "The filekey containing the secret key for"
+    parser_decrypt = subparsers.add_parser("decrypt", help="Decrypts a file")
+    parser_decrypt.add_argument(
+        "filename", help="File name to decrypt (with its extension)"
+    )
+    parser_decrypt.add_argument(
+        "filekey",
+        nargs="?",
+        help="The filekey containing the secret key for"
         " decrypting the file (with its extension)."
         " If decryption is to be done using a password, "
-        "this field does not need to be filled in.")
-    parser_decrypt.add_argument("-p", "--password", 
-        default= None, help= "Decrypts with a given password (salt is "
-        "recovered automatically from the file)", 
-        action="store_true")
+        "this field does not need to be filled in.",
+    )
+    parser_decrypt.add_argument(
+        "-p",
+        "--password",
+        default=None,
+        help="Decrypts with a given password (salt is "
+        "recovered automatically from the file)",
+        action="store_true",
+    )
 
     # - - - - - - Command : verify
     parser_verify = subparsers.add_parser(
         "verify",
         help="Verify that a key/password can decrypt a file "
-             "(read-only, nothing is written to disk)"
+        "(read-only, nothing is written to disk)",
     )
     parser_verify.add_argument(
-        "filename",
-        help="Encrypted file to verify (with its extension)"
+        "filename", help="Encrypted file to verify (with its extension)"
     )
     parser_verify.add_argument(
-        "filekey", nargs="?",
+        "filekey",
+        nargs="?",
         help="Filekey to verify against (with its .key extension). "
-             "Omit if using --password."
+        "Omit if using --password.",
     )
     parser_verify.add_argument(
-        "-p", "--password",
-        default=None, action="store_true",
+        "-p",
+        "--password",
+        default=None,
+        action="store_true",
         help="Verify using a password instead of a filekey (salt is "
-             "recovered automatically from the file)"
+        "recovered automatically from the file)",
     )
 
-        # - - - - - - Call logics - - - - - -
+    # - - - - - - Call logics - - - - - -
     args = parser.parse_args()
 
     if args.command == "install":
         install_from_requirements()
-    
+
     elif args.command == "psw":
         psw_gen(copy_secret=args.copysecret)
 
     elif args.command == "read":
         read_filekey(args.filekey)
-    
+
     elif args.command == "timestamp":
         # Conflict
         if args.filekey and args.password:
@@ -2003,14 +2112,12 @@ def main():
 
         # File encrypted with a filekey
         elif args.filekey:
-            get_timestamp(encrypted_file=args.encrypted_file,
-                          filekey=args.filekey)
+            get_timestamp(encrypted_file=args.encrypted_file, filekey=args.filekey)
 
         # Password mode: salt is recovered automatically from the file
         elif args.password:
             password = get_confidential_input(_fmt_ask("Password: "))
-            get_timestamp(encrypted_file=args.encrypted_file,
-                          psw=password)
+            get_timestamp(encrypted_file=args.encrypted_file, psw=password)
 
         else:
             _fmt_err("Wrong command combination.")
@@ -2019,7 +2126,7 @@ def main():
     elif args.command == "create":
         key = get_confidential_input(_fmt_ask("Key: "))
         create_filekey(args.filename, key)
-    
+
     elif args.command == "delete":
         # Single file/folder : standard behaviour (confirmation inside secure_delete)
         if len(args.filenames) == 1:
@@ -2028,8 +2135,9 @@ def main():
         # Multiple targets : one global confirmation before processing
         else:
             targets_summary = "\n".join(
-                f"  [folder] {fn}/ ({sum(len(f) for _,_,f in walk(fn))} files)"
-                if isdir(fn) else f"  [file]   {fn}"
+                f"  [folder] {fn}/ ({sum(len(f) for _, _, f in walk(fn))} files)"
+                if isdir(fn)
+                else f"  [file]   {fn}"
                 for fn in args.filenames
             )
             _fmt_warn("You are about to irreversibly delete:", targets_summary)
@@ -2046,10 +2154,10 @@ def main():
             for filename in args.filenames:
                 secure_delete(filename, shuffle=args.shuffle, silent_mode=True)
                 _fmt_info(f"'{filename}' deleted.")
-    
+
     elif args.command == "zip":
         zip_files(args.targets, args.delete)
-    
+
     elif args.command == "unzip":
         unzip_file(args.arcname)
 
@@ -2067,27 +2175,40 @@ def main():
             sys.exit(1)
 
         if args.password:
-            password = get_confidential_input(_fmt_ask("Password: "))
+            while True:
+                password = get_confidential_input(_fmt_ask("Password: "))
+                confirmation = get_confidential_input(_fmt_ask("Confirm password: "))
+                if password == confirmation:
+                    break
+                _fmt_err("Passwords do not match. Please try again.")
 
         if args.overwrite:
-            encrypt(args.filename, overwrite=True,
-                    given_filekey=args.filekey,
-                    psw=password,
-                    copy_secret=args.copysecret)
+            encrypt(
+                args.filename,
+                overwrite=True,
+                given_filekey=args.filekey,
+                psw=password,
+                copy_secret=args.copysecret,
+            )
 
         else:
             # --copy explicitly given, or neither option provided
             # (--copy is the default for safety)
             if not args.copy:
                 _fmt_info("Note: no mode specified, defaulting to --copy.")
-            encrypt(args.filename, overwrite=False,
-                    given_filekey=args.filekey,
-                    psw=password,
-                    copy_secret=args.copysecret)
+            encrypt(
+                args.filename,
+                overwrite=False,
+                given_filekey=args.filekey,
+                psw=password,
+                copy_secret=args.copysecret,
+            )
 
     elif args.command == "decrypt":
         # Wrong command
-        if (args.password is None and args.filekey is None) or (args.password and args.filekey):
+        if (args.password is None and args.filekey is None) or (
+            args.password and args.filekey
+        ):
             _fmt_err("You must provide either a 'filekey' or '--password'.")
             sys.exit(1)
 
@@ -2126,6 +2247,7 @@ def main():
     else:
         _fmt_err("Unknown argument.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
